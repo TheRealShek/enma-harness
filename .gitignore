@@ -1,0 +1,18 @@
+# Binaries
+/enma-harness
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# OS and editor files
+.DS_Store
+*.swp
+*~
