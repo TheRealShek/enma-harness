@@ -23,7 +23,6 @@ func chat(messages []Message) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	fmt.Println("RAW:", string(data))
 	if resp.StatusCode != http.StatusOK {
 		return Message{}, fmt.Errorf("status %d: %s", resp.StatusCode, data)
 	}

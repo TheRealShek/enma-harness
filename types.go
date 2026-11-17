@@ -19,7 +19,7 @@ type ToolCall struct {
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content"`
-	ToolCall   []ToolCall `json:"tool_call,omitempty"`
+	ToolCalls   []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 

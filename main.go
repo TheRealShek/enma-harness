@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 )
@@ -25,33 +24,27 @@ func main() {
 				break
 			}
 			conv = append(conv, Message{Role: "user", Content: sc.Text()})
-
 		}
 
 		reply, err := chat(conv)
 		if err != nil {
 			fmt.Println("Error:", err)
+			needInput = true
+			if sc.Text() == "" {
+				continue
+			}
 		}
 		conv = append(conv, reply)
 
 		if reply.Content != "" {
 			fmt.Println("\033[92mQwen:", reply.Content, "\033[0m")
 		}
-		if len(reply.ToolCall) == 0 {
-			break
-		}
-		fmt.Printf("DEBUG calls=%d content=%q\n", len(reply.ToolCall), reply.Content)
-		needInput = len(reply.ToolCall) == 0
-		for _, tc := range reply.ToolCall {
-			fmt.Printf("\033[93mtool: %s(%s)\033[0m\n", tc.Function.Name, tc.Function.Arguments)
-			args := map[string]string{}
-			json.Unmarshal([]byte(tc.Function.Arguments), &args)
-			out, err := tools[0].Run(args)
-			if err != nil {
-				out = "error: " + err.Error()
-			}
-			conv = append(conv, Message{Role: "tool", ToolCallID: tc.ID, Content: out})
 
+		needInput = len(reply.ToolCalls) == 0
+		for _, tc := range reply.ToolCalls {
+			fmt.Printf("\033[93mtool: %s(%s)\033[0m\n", tc.Function.Name, tc.Function.Arguments)
+			out := execute(tc.Function.Name, tc.Function.Arguments)
+			conv = append(conv, Message{Role: "tool", ToolCallID: tc.ID, Content: out})
 		}
 	}
 
