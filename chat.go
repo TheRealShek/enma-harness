@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/therealshek/enma-harness/tools"
 )
 
 func chat(messages []Message) (Message, error) {
-	body, err := json.Marshal(Request{model, messages, specs()})
+	body, err := json.Marshal(Request{model, messages, tools.Specs()})
 	if err != nil {
 		return Message{}, err
 	}

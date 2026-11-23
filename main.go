@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+
+	"github.com/therealshek/enma-harness/tools"
 )
 
 const (
@@ -43,7 +45,7 @@ func main() {
 		needInput = len(reply.ToolCalls) == 0
 		for _, tc := range reply.ToolCalls {
 			fmt.Printf("\033[93mtool: %s(%s)\033[0m\n", tc.Function.Name, tc.Function.Arguments)
-			out := execute(tc.Function.Name, tc.Function.Arguments)
+			out := tools.Execute(tc.Function.Name, tc.Function.Arguments)
 			conv = append(conv, Message{Role: "tool", ToolCallID: tc.ID, Content: out})
 		}
 	}
