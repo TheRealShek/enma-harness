@@ -27,7 +27,7 @@ func (r *ReadFileTool) Name() string {
 }
 
 func (r *ReadFileTool) Description() string {
-	return "Read file contents at a path. Output is cut at a size limit; offset continues reading."
+	return "Read a file. If the result ends halfway, check the note at the end for the next offset."
 }
 
 func (r *ReadFileTool) Parameters() map[string]any {
@@ -36,15 +36,15 @@ func (r *ReadFileTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path to the file to read.",
+				"description": "File path to read.",
 			},
 			"offset": map[string]any{
 				"type":        "integer",
-				"description": "Optional 1-indexed line offset to start reading from.",
+				"description": "Start line number. First line is 1 (e.g. if you read lines 1 to 5, use offset 6 next).",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "Optional maximum number of lines to read.",
+				"description": "Limit on how many lines to read (max 2000 lines).",
 			},
 		},
 		"required": []string{"path"},
@@ -118,49 +118,55 @@ func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 		return fmt.Sprintf("Line %d is over %d bytes cap; cannot display whole line.", args.Offset, maxReadBytes), nil
 	}
 
-	// Collect lines under limit and size cap (2000 lines or 50KB)
-	hasLimit := args.Limit > 0
-	var selected []string
-	currentBytes := 0
-	stoppedByLimit := false
-	stoppedBySizeCap := false
-
-	for i := firstLineIdx; i < totalLines; i++ {
-		if hasLimit && len(selected) >= args.Limit {
-			stoppedByLimit = true
-			break
-		}
-		if len(selected) >= maxReadLines {
-			stoppedBySizeCap = true
-			break
-		}
-
-		line := lines[i]
-		lineBytes := len(line)
-		if len(selected) > 0 {
-			lineBytes++ // account for newline separator
-		}
-
-		if currentBytes+lineBytes > maxReadBytes {
-			stoppedBySizeCap = true
-			break
-		}
-
-		selected = append(selected, line)
-		currentBytes += lineBytes
-	}
+	selected, stopReason := sliceLines(lines[args.Offset-1:], args.Limit)
 
 	out := strings.Join(selected, "\n")
 	lineA := args.Offset
 	lineB := args.Offset + len(selected) - 1
 
-	// Append continuation notes if stopped early
-	if stoppedBySizeCap {
+	switch stopReason {
+	case stopCap:
 		out += fmt.Sprintf("\n[Showing lines %d-%d of %d. Use offset=%d to continue.]", lineA, lineB, totalLines, lineB+1)
-	} else if stoppedByLimit {
+	case stopLimit:
 		remaining := totalLines - lineB
 		out += fmt.Sprintf("\n[%d more lines in file. Use offset=%d to continue.]", remaining, lineB+1)
 	}
 
 	return out, nil
+}
+
+type stopReason int
+
+const (
+	stopNone stopReason = iota
+	stopCap
+	stopLimit
+)
+
+func sliceLines(lines []string, limit int) ([]string, stopReason) {
+	var selected []string
+	totalBytes := 0
+
+	for _, line := range lines {
+		if limit > 0 && len(selected) >= limit {
+			return selected, stopLimit
+		}
+		if len(selected) >= maxReadLines {
+			return selected, stopCap
+		}
+
+		newlineBytes := 0
+		if len(selected) > 0 {
+			newlineBytes = 1
+		}
+
+		if totalBytes+len(line)+newlineBytes > maxReadBytes {
+			return selected, stopCap
+		}
+
+		selected = append(selected, line)
+		totalBytes += len(line) + newlineBytes
+	}
+
+	return selected, stopNone
 }

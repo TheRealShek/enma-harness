@@ -4,13 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+const maxListEntries = 500
 
 type ListFilesTool struct{}
 
 type listFilesArgs struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit"`
 }
 
 func (l *ListFilesTool) Name() string {
@@ -18,7 +23,7 @@ func (l *ListFilesTool) Name() string {
 }
 
 func (l *ListFilesTool) Description() string {
-	return "List files in a directory. Directories end with /. Use . for the current directory."
+	return "List files in a folder. Folders end with /. If the result ends halfway, check the note at the end for the next offset."
 }
 
 func (l *ListFilesTool) Parameters() map[string]any {
@@ -27,36 +32,106 @@ func (l *ListFilesTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Directory path to list files from.",
+				"description": "Folder path. Default is '.' for current folder.",
+			},
+			"offset": map[string]any{
+				"type":        "integer",
+				"description": "Start item number. First item is 1 (e.g. if you read items 1 to 5, use offset 6 next).",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"description": "Limit on how many items to list (max 500 items).",
 			},
 		},
-		"required": []string{"path"},
 	}
 }
 
 // Run lists directory contents, adding a trailing slash to subdirectories.
+// Output is capped by maxListEntries (500) and appends a continuation note if truncated.
 func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 	var args listFilesArgs
+	args.Offset = 1
+
 	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
 		return "", fmt.Errorf("bad arguments: %w", err)
 	}
 
-	if strings.TrimSpace(args.Path) == "" {
-		return "", fmt.Errorf("missing or invalid path")
+	rawPath := strings.TrimSpace(args.Path)
+	if rawPath == "" {
+		rawPath = "."
 	}
 
-	entries, err := os.ReadDir(args.Path)
-	if err != nil {
-		return "", err
-	}
-
-	var out strings.Builder
-	for _, e := range entries {
-		out.WriteString(e.Name())
-		if e.IsDir() {
-			out.WriteString("/")
+	cleanPath := strings.TrimPrefix(rawPath, "@")
+	resolvedPath := filepath.Clean(cleanPath)
+	if !filepath.IsAbs(resolvedPath) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("unable to determine working directory: %w", err)
 		}
-		out.WriteString("\n")
+		resolvedPath = filepath.Join(wd, resolvedPath)
 	}
-	return out.String(), nil
+
+	info, err := os.Stat(resolvedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("directory does not exist: %s", rawPath)
+		}
+		return "", fmt.Errorf("failed to access directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is a file, not a directory: %s", rawPath)
+	}
+
+	entries, err := os.ReadDir(resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read directory: %w", err)
+	}
+	total := len(entries)
+
+	if args.Offset < 1 {
+		return "", fmt.Errorf("invalid offset %d: must be an integer >= 1", args.Offset)
+	}
+	if total == 0 {
+		return "", nil
+	}
+	if args.Offset > total {
+		return "", fmt.Errorf("offset %d is past end of directory (has %d entries)", args.Offset, total)
+	}
+
+	firstIdx := args.Offset - 1
+	hasLimit := args.Limit > 0
+	stoppedByLimit := false
+	stoppedBySizeCap := false
+
+	var selected []string
+	for i := firstIdx; i < total; i++ {
+		if hasLimit && len(selected) >= args.Limit {
+			stoppedByLimit = true
+			break
+		}
+		if len(selected) >= maxListEntries {
+			stoppedBySizeCap = true
+			break
+		}
+
+		e := entries[i]
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		selected = append(selected, name)
+	}
+
+	out := strings.Join(selected, "\n")
+	entryA := args.Offset
+	entryB := args.Offset + len(selected) - 1
+
+	if stoppedBySizeCap {
+		out += fmt.Sprintf("\n[Showing entries %d-%d of %d. Use offset=%d to continue.]", entryA, entryB, total, entryB+1)
+	} else if stoppedByLimit {
+		remaining := total - entryB
+		out += fmt.Sprintf("\n[%d more entries in directory. Use offset=%d to continue.]", remaining, entryB+1)
+	}
+
+	return out, nil
 }
