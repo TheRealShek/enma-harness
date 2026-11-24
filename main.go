@@ -9,48 +9,53 @@ import (
 )
 
 const (
-	url               = "http://localhost:11434/v1/chat/completions"
-	model             = "qwen3:4b"
-	sys_prompt string = "Answer directly. Avoid meta commentary, self-evaluation, and unnecessary explanations. Explain only when asked or when needed for clarity. Keep responses concise but complete."
+	url              = "http://localhost:11434/v1/chat/completions"
+	model            = "qwen3:4b"
+	systemPrompt     = "Answer directly. Avoid meta commentary, self-evaluation, and unnecessary explanations. Explain only when asked or when needed for clarity. Keep responses concise but complete."
+	maxContextTokens = 8192
 )
 
 func main() {
-	conv := []Message{{Role: "system", Content: sys_prompt}}
-	sc := bufio.NewScanner(os.Stdin)
-	needInput := true
+	conversation := []Message{{Role: "system", Content: systemPrompt}}
+	scanner := bufio.NewScanner(os.Stdin)
+	needUserInput := true
 
 	for {
-		if needInput {
-			fmt.Print("\033[94mYou: ")
-			if !sc.Scan() {
+		if needUserInput {
+			fmt.Print(styleUser("You:") + " ")
+			if !scanner.Scan() {
 				break
 			}
-			conv = append(conv, Message{Role: "user", Content: sc.Text()})
+			conversation = append(conversation, Message{Role: "user", Content: scanner.Text()})
+			fmt.Println()
 		}
 
-		reply, err := chat(conv)
+		reply, usage, err := chat(conversation)
 		if err != nil {
-			fmt.Println("Error:", err)
-			needInput = true
-			if sc.Text() == "" {
+			fmt.Println(styleError("Error:"), err)
+			needUserInput = true
+			if scanner.Text() == "" {
 				continue
 			}
 		}
-		conv = append(conv, reply)
+		conversation = append(conversation, reply)
 
 		if reply.Content != "" {
-			fmt.Println("\033[92mQwen:", reply.Content, "\033[0m")
+			fmt.Println(styleAssistant("Qwen:"), reply.Content)
+			printContextBadge(calculateContextMetrics(usage, conversation, reply))
+			fmt.Println()
 		}
 
-		needInput = len(reply.ToolCalls) == 0
-		for _, tc := range reply.ToolCalls {
-			fmt.Printf("\033[93mtool: %s(%s)\033[0m\n", tc.Function.Name, tc.Function.Arguments)
-			out := tools.Execute(tc.Function.Name, tc.Function.Arguments)
-			conv = append(conv, Message{Role: "tool", ToolCallID: tc.ID, Content: out})
+		needUserInput = len(reply.ToolCalls) == 0
+		for _, toolCall := range reply.ToolCalls {
+			fmt.Println(styleTool(fmt.Sprintf("tool: %s(%s)", toolCall.Function.Name, toolCall.Function.Arguments)))
+			fmt.Println()
+			toolOutput := tools.Execute(toolCall.Function.Name, toolCall.Function.Arguments)
+			conversation = append(conversation, Message{Role: "tool", ToolCallID: toolCall.ID, Content: toolOutput})
 		}
 	}
 
-	if err := sc.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		fmt.Println("Input error:", err)
 	}
 }
