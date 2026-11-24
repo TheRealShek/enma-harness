@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const maxListEntries = 500
+const maxListEntries = 100
 
 type ListFilesTool struct{}
 
@@ -40,14 +40,14 @@ func (l *ListFilesTool) Parameters() map[string]any {
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "Limit on how many items to list (max 500 items).",
+				"description": "Limit on how many items to list (max 100 items).",
 			},
 		},
 	}
 }
 
 // Run lists directory contents, adding a trailing slash to subdirectories.
-// Output is capped by maxListEntries (500) and appends a continuation note if truncated.
+// Output is capped by maxListEntries (100) and appends a continuation note if truncated.
 func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 	var args listFilesArgs
 	args.Offset = 1

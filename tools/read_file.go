@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	maxReadLines = 2000
-	maxReadBytes = 50 * 1024
+	maxReadLines = 500
+	maxReadBytes = 10 * 1024
 )
 
 type ReadFileTool struct{}
@@ -44,7 +44,7 @@ func (r *ReadFileTool) Parameters() map[string]any {
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "Limit on how many lines to read (max 2000 lines).",
+				"description": "Limit on how many lines to read (max 500 lines).",
 			},
 		},
 		"required": []string{"path"},
