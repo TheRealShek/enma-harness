@@ -61,16 +61,9 @@ func (e *EditFileTool) Run(rawArgs string) (string, error) {
 		return "", fmt.Errorf("path cannot be empty")
 	}
 
-	cleanPath := strings.TrimPrefix(rawPath, "@")
-	resolvedPath := filepath.Clean(cleanPath)
-
-	if !filepath.IsAbs(resolvedPath) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("unable to determine working directory: %w", err)
-		}
-
-		resolvedPath = filepath.Join(wd, resolvedPath)
+	resolvedPath, err := resolvePath(rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	info, err := os.Stat(resolvedPath)
@@ -136,6 +129,7 @@ func (e *EditFileTool) Run(rawArgs string) (string, error) {
 	return fmt.Sprintf("Successfully replaced 1 occurrence in %q.", rawPath), nil
 }
 
+// atomicWriteFile writes data to a temporary file in the same folder, syncs it, and renames it into place.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 

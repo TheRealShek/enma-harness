@@ -1,5 +1,12 @@
 package tools
 
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
 // Tool defines the contract for any executable tool exposed to the model.
 type Tool interface {
 	Name() string
@@ -13,6 +20,24 @@ var All = []Tool{
 	&ReadFileTool{},
 	&ListFilesTool{},
 	&EditFileTool{},
+	&WriteFileTool{},
+}
+
+// resolvePath strips any @ prefix and turns relative paths into absolute paths from the working directory.
+func resolvePath(rawPath string) (string, error) {
+	cleanPath := strings.TrimPrefix(strings.TrimSpace(rawPath), "@")
+	resolvedPath := filepath.Clean(cleanPath)
+
+	if !filepath.IsAbs(resolvedPath) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("unable to determine working directory: %w", err)
+		}
+
+		resolvedPath = filepath.Join(wd, resolvedPath)
+	}
+
+	return resolvedPath, nil
 }
 
 // Specs formats registered tools into the OpenAI function schema expected by the API.

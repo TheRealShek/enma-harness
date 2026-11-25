@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 )
@@ -68,16 +67,9 @@ func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 	}
 
 	// Resolve path and validate file
-	cleanPath := strings.TrimPrefix(rawPath, "@")
-	resolvedPath := filepath.Clean(cleanPath)
-
-	if !filepath.IsAbs(resolvedPath) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("unable to determine working directory: %w", err)
-		}
-
-		resolvedPath = filepath.Join(wd, resolvedPath)
+	resolvedPath, err := resolvePath(rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	info, err := os.Stat(resolvedPath)
