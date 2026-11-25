@@ -1,30 +1,36 @@
 package main
 
 const (
-	colorReset     = "\033[0m"
-	colorUser      = "\033[1;94m" // bold bright blue
-	colorAssistant = "\033[1;92m" // bold bright green
-	colorTool      = "\033[33m"   // yellow
-	colorError     = "\033[31m"   // red
-	colorMuted     = "\033[90m"   // dim gray
+	reset = "\033[0m"
+
+	colorAssistant = "\033[38;5;141m"
+	colorUser      = "\033[38;5;75m"
+	colorTool      = "\033[38;5;214m"
+	colorMuted     = "\033[38;5;242m"
+	colorError     = "\033[38;5;203m"
+	colorSuccess   = "\033[38;5;114m"
 )
 
-func styleUser(text string) string {
-	return colorUser + text + colorReset
+func styleAssistant(text string) string {
+	return colorAssistant + text + reset
 }
 
-func styleAssistant(text string) string {
-	return colorAssistant + text + colorReset
+func styleUser(text string) string {
+	return colorUser + text + reset
 }
 
 func styleTool(text string) string {
-	return colorTool + text + colorReset
-}
-
-func styleError(text string) string {
-	return colorError + text + colorReset
+	return colorTool + text + reset
 }
 
 func styleMuted(text string) string {
-	return colorMuted + text + colorReset
+	return colorMuted + text + reset
+}
+
+func styleError(text string) string {
+	return colorError + text + reset
+}
+
+func styleSuccess(text string) string {
+	return colorSuccess + text + reset
 }

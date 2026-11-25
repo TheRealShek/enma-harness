@@ -13,6 +13,7 @@ func formatWithCommas(number int) string {
 	}
 
 	var formatted strings.Builder
+
 	firstGroupLen := len(digits) % 3
 	if firstGroupLen == 0 {
 		firstGroupLen = 3
@@ -30,6 +31,7 @@ func formatWithCommas(number int) string {
 
 func countToolTokens(messages []Message) int {
 	total := 0
+
 	for _, msg := range messages {
 		if msg.Role == "tool" {
 			total += (len(msg.Content) + 3) / 4
@@ -39,15 +41,20 @@ func countToolTokens(messages []Message) int {
 	return total
 }
 
-func countReasoningTokens(usage Usage, content string) int {
+func countReasoningTokens(usage Usage, reply Message) int {
 	if usage.CompletionTokensDetails.ReasoningTokens > 0 {
 		return usage.CompletionTokensDetails.ReasoningTokens
 	}
 
-	start := strings.Index(content, "<think>")
-	end := strings.Index(content, "</think>")
+	if len(reply.Reasoning) > 0 {
+		return (len(reply.Reasoning) + 3) / 4
+	}
+
+	start := strings.Index(reply.Content, "<think>")
+	end := strings.Index(reply.Content, "</think>")
+
 	if start != -1 && end != -1 && end > start {
-		return (len(content[start+7:end]) + 3) / 4
+		return (len(reply.Content[start+7:end]) + 3) / 4
 	}
 
 	return 0
@@ -61,7 +68,7 @@ func calculateContextMetrics(usage Usage, conversation []Message, reply Message)
 		InputTokens:     usage.PromptTokens,
 		OutputTokens:    usage.CompletionTokens,
 		ToolTokens:      countToolTokens(conversation),
-		ReasoningTokens: countReasoningTokens(usage, reply.Content),
+		ReasoningTokens: countReasoningTokens(usage, reply),
 	}
 }
 
