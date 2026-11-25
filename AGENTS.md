@@ -1,5 +1,9 @@
 # AGENTS.md
 
+Enma Harness is a minimal Go CLI agent harness that streams model responses, tracks context usage, and runs local tools.
+
 ## Repository Rules
 
-- This repository will not have test files. Do not write or generate test files.
+- Keep code simple, readable, and consistently named across the repository.
+- Keep all model API integrations OpenAI API compatible.
+- Keep test files minimal and focused; do not bloat tests.
