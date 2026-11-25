@@ -12,11 +12,13 @@ type Tool interface {
 var All = []Tool{
 	&ReadFileTool{},
 	&ListFilesTool{},
+	&EditFileTool{},
 }
 
 // Specs formats registered tools into the OpenAI function schema expected by the API.
 func Specs() []any {
 	var out []any
+
 	for _, t := range All {
 		out = append(out, map[string]any{
 			"type": "function",
@@ -27,6 +29,7 @@ func Specs() []any {
 			},
 		})
 	}
+
 	return out
 }
 
@@ -38,8 +41,10 @@ func Execute(name, rawArgs string) string {
 			if err != nil {
 				return "error: " + err.Error()
 			}
+
 			return out
 		}
 	}
+
 	return "error: unknown tool " + name
 }

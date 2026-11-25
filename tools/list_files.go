@@ -23,7 +23,7 @@ func (l *ListFilesTool) Name() string {
 }
 
 func (l *ListFilesTool) Description() string {
-	return "List files in a folder. Folders end with /. If the result ends halfway, check the note at the end for the next offset."
+	return "List files in a folder. Folders end with /."
 }
 
 func (l *ListFilesTool) Parameters() map[string]any {
@@ -36,7 +36,7 @@ func (l *ListFilesTool) Parameters() map[string]any {
 			},
 			"offset": map[string]any{
 				"type":        "integer",
-				"description": "Start item number. First item is 1 (e.g. if you read items 1 to 5, use offset 6 next).",
+				"description": "Start item number. First item is 1.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
@@ -47,9 +47,9 @@ func (l *ListFilesTool) Parameters() map[string]any {
 }
 
 // Run lists directory contents, adding a trailing slash to subdirectories.
-// Output is capped by maxListEntries (100) and appends a continuation note if truncated.
 func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 	var args listFilesArgs
+
 	args.Offset = 1
 
 	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
@@ -63,11 +63,13 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 
 	cleanPath := strings.TrimPrefix(rawPath, "@")
 	resolvedPath := filepath.Clean(cleanPath)
+
 	if !filepath.IsAbs(resolvedPath) {
 		wd, err := os.Getwd()
 		if err != nil {
 			return "", fmt.Errorf("unable to determine working directory: %w", err)
 		}
+
 		resolvedPath = filepath.Join(wd, resolvedPath)
 	}
 
@@ -76,8 +78,10 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("directory does not exist: %s", rawPath)
 		}
+
 		return "", fmt.Errorf("failed to access directory: %w", err)
 	}
+
 	if !info.IsDir() {
 		return "", fmt.Errorf("path is a file, not a directory: %s", rawPath)
 	}
@@ -86,14 +90,17 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read directory: %w", err)
 	}
+
 	total := len(entries)
 
 	if args.Offset < 1 {
 		return "", fmt.Errorf("invalid offset %d: must be an integer >= 1", args.Offset)
 	}
+
 	if total == 0 {
 		return "", nil
 	}
+
 	if args.Offset > total {
 		return "", fmt.Errorf("offset %d is past end of directory (has %d entries)", args.Offset, total)
 	}
@@ -104,21 +111,27 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 	stoppedBySizeCap := false
 
 	var selected []string
+
 	for i := firstIdx; i < total; i++ {
 		if hasLimit && len(selected) >= args.Limit {
 			stoppedByLimit = true
+
 			break
 		}
+
 		if len(selected) >= maxListEntries {
 			stoppedBySizeCap = true
+
 			break
 		}
 
 		e := entries[i]
 		name := e.Name()
+
 		if e.IsDir() {
 			name += "/"
 		}
+
 		selected = append(selected, name)
 	}
 
@@ -127,10 +140,10 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 	entryB := args.Offset + len(selected) - 1
 
 	if stoppedBySizeCap {
-		out += fmt.Sprintf("\n[Showing entries %d-%d of %d. Use offset=%d to continue.]", entryA, entryB, total, entryB+1)
+		out += fmt.Sprintf("\n[Showing entries %d-%d of %d]", entryA, entryB, total)
 	} else if stoppedByLimit {
 		remaining := total - entryB
-		out += fmt.Sprintf("\n[%d more entries in directory. Use offset=%d to continue.]", remaining, entryB+1)
+		out += fmt.Sprintf("\n[%d more entries in directory]", remaining)
 	}
 
 	return out, nil

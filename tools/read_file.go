@@ -27,7 +27,7 @@ func (r *ReadFileTool) Name() string {
 }
 
 func (r *ReadFileTool) Description() string {
-	return "Read a file. If the result ends halfway, check the note at the end for the next offset."
+	return "Read a file."
 }
 
 func (r *ReadFileTool) Parameters() map[string]any {
@@ -40,7 +40,7 @@ func (r *ReadFileTool) Parameters() map[string]any {
 			},
 			"offset": map[string]any{
 				"type":        "integer",
-				"description": "Start line number. First line is 1 (e.g. if you read lines 1 to 5, use offset 6 next).",
+				"description": "Start line number. First line is 1.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
@@ -51,10 +51,10 @@ func (r *ReadFileTool) Parameters() map[string]any {
 	}
 }
 
-// Run reads UTF-8 text from offset up to limit, capped by maxReadLines and maxReadBytes
-// If truncated by either cap or limit, it appends a continuation note with offset.
+// Run reads UTF-8 text from offset up to limit, capped by maxReadLines and maxReadBytes.
 func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 	var args readFileArgs
+
 	args.Offset = 1 // default offset
 
 	// Parse arguments
@@ -70,11 +70,13 @@ func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 	// Resolve path and validate file
 	cleanPath := strings.TrimPrefix(rawPath, "@")
 	resolvedPath := filepath.Clean(cleanPath)
+
 	if !filepath.IsAbs(resolvedPath) {
 		wd, err := os.Getwd()
 		if err != nil {
 			return "", fmt.Errorf("unable to determine working directory: %w", err)
 		}
+
 		resolvedPath = filepath.Join(wd, resolvedPath)
 	}
 
@@ -83,8 +85,10 @@ func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("file does not exist: %s", rawPath)
 		}
+
 		return "", fmt.Errorf("failed to access file: %w", err)
 	}
+
 	if info.IsDir() {
 		return "", fmt.Errorf("path is a directory, not a file: %s", rawPath)
 	}
@@ -94,21 +98,26 @@ func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
+
 	if !utf8.Valid(data) {
 		return "", fmt.Errorf("file is not valid UTF-8: %s", rawPath)
 	}
 
 	content := string(data)
+
 	var lines []string
+
 	if len(content) > 0 {
 		lines = strings.Split(content, "\n")
 	}
+
 	totalLines := len(lines)
 
 	// Validate offset and inspect first line
 	if args.Offset < 1 {
 		return "", fmt.Errorf("invalid offset %d: must be an integer >= 1", args.Offset)
 	}
+
 	if args.Offset > totalLines {
 		return "", fmt.Errorf("offset %d is past end of file (file has %d lines)", args.Offset, totalLines)
 	}
@@ -126,10 +135,10 @@ func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 
 	switch stopReason {
 	case stopCap:
-		out += fmt.Sprintf("\n[Showing lines %d-%d of %d. Use offset=%d to continue.]", lineA, lineB, totalLines, lineB+1)
+		out += fmt.Sprintf("\n[Showing lines %d-%d of %d]", lineA, lineB, totalLines)
 	case stopLimit:
 		remaining := totalLines - lineB
-		out += fmt.Sprintf("\n[%d more lines in file. Use offset=%d to continue.]", remaining, lineB+1)
+		out += fmt.Sprintf("\n[%d more lines in file]", remaining)
 	}
 
 	return out, nil
@@ -145,12 +154,14 @@ const (
 
 func sliceLines(lines []string, limit int) ([]string, stopReason) {
 	var selected []string
+
 	totalBytes := 0
 
 	for _, line := range lines {
 		if limit > 0 && len(selected) >= limit {
 			return selected, stopLimit
 		}
+
 		if len(selected) >= maxReadLines {
 			return selected, stopCap
 		}
