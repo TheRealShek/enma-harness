@@ -123,8 +123,14 @@ func (s *Session) requestApproval(action, target string) bool {
 }
 
 func requiredApproval(tainted bool, toolName, realRoot, realTarget string) (string, bool) {
-	if isWriteTool(toolName) && isSensitiveMatch(realRoot, realTarget, config.AlwaysSensitive) {
-		return "write sensitive repo file", true
+	if isWriteTool(toolName) {
+		if isHarnessStatePath(realTarget) {
+			return "write harness state directory", true
+		}
+
+		if matchesSensitivePath(realRoot, realTarget, config.AlwaysSensitive) {
+			return "write sensitive repo file", true
+		}
 	}
 
 	if !tainted {
@@ -132,16 +138,16 @@ func requiredApproval(tainted bool, toolName, realRoot, realTarget string) (stri
 	}
 
 	if isWriteTool(toolName) {
-		if isOutsideRoot(realRoot, realTarget) {
+		if isOutsideProjectRoot(realRoot, realTarget) {
 			return "write outside project", true
 		}
 
-		if isSensitiveMatch(realRoot, realTarget, config.TaintedSensitive) {
+		if matchesSensitivePath(realRoot, realTarget, config.TaintedSensitive) {
 			return "write sensitive file while tainted", true
 		}
 	}
 
-	if toolName == "read_file" && isOutsideRoot(realRoot, realTarget) {
+	if toolName == "read_file" && isOutsideProjectRoot(realRoot, realTarget) {
 		return "read file outside project", true
 	}
 
@@ -218,7 +224,7 @@ func resolveRealPath(target string) (string, error) {
 	}
 }
 
-func isOutsideRoot(root, target string) bool {
+func isOutsideProjectRoot(root, target string) bool {
 	if root == "" {
 		return false
 	}
@@ -231,8 +237,8 @@ func isOutsideRoot(root, target string) bool {
 	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func isSensitiveMatch(root, target string, names []string) bool {
-	if root == "" || isOutsideRoot(root, target) {
+func matchesSensitivePath(root, target string, names []string) bool {
+	if root == "" || isOutsideProjectRoot(root, target) {
 		return false
 	}
 
@@ -248,6 +254,22 @@ func isSensitiveMatch(root, target string, names []string) bool {
 	}
 
 	return false
+}
+
+func isHarnessStatePath(realTarget string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+
+	stateRoot := filepath.Join(filepath.Clean(home), config.HarnessDirName)
+	if realState, err := resolveRealPath(stateRoot); err == nil {
+		stateRoot = realState
+	}
+
+	cleanTarget := filepath.Clean(realTarget)
+
+	return cleanTarget == stateRoot || strings.HasPrefix(cleanTarget, stateRoot+string(filepath.Separator))
 }
 
 func isUntrustedPath(root, target string) bool {
