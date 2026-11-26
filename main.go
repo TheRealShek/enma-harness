@@ -2,10 +2,8 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/therealshek/enma-harness/config"
@@ -13,11 +11,33 @@ import (
 )
 
 func main() {
+	// Initialize conversation, stdin scanner, and tool approval session.
 	conversation := []Message{{Role: "system", Content: config.DefaultSystemPrompt}}
 	scanner := bufio.NewScanner(os.Stdin)
 	needUserInput := true
 
+	wd, _ := os.Getwd()
+	session := &tools.Session{
+		ProjectRoot: wd,
+		Approve: func(action, target string, tainted bool) bool {
+			if tainted {
+				fmt.Println(styleError("Warning: session has read untrusted data. Review what the model is trying to do before approving."))
+			}
+
+			fmt.Printf("%s %s (%s) [y/N]: ", styleTool("Approval required:"), action, target)
+
+			if !scanner.Scan() {
+				return false
+			}
+
+			ans := strings.TrimSpace(strings.ToLower(scanner.Text()))
+
+			return ans == "y" || ans == "yes"
+		},
+	}
+
 	for {
+		// Prompt for user input when the previous turn has no pending tool calls.
 		if needUserInput {
 			fmt.Print(styleUser("You:") + " ")
 
@@ -30,54 +50,12 @@ func main() {
 			fmt.Println()
 		}
 
-		var (
-			startedThinking  bool
-			thinkingEnded    bool
-			startedAssistant bool
-		)
+		// Stream thinking and answer tokens from the model.
+		renderer := newStreamRenderer()
 
-		onToken := func(token string, isThinking bool) {
-			if isThinking {
-				if !startedThinking {
-					fmt.Println(styleMuted("│ [thinking]"))
-					fmt.Print(styleMuted("│ "))
-
-					startedThinking = true
-				}
-
-				lines := strings.Split(token, "\n")
-
-				for i, line := range lines {
-					if i > 0 {
-						fmt.Print("\n" + styleMuted("│ "))
-					}
-
-					if line != "" {
-						fmt.Print(styleMuted(line))
-					}
-				}
-
-				return
-			}
-
-			if startedThinking && !thinkingEnded {
-				fmt.Println()
-				fmt.Println()
-
-				thinkingEnded = true
-			}
-
-			if !startedAssistant {
-				fmt.Print(styleAssistant("Qwen:") + " ")
-
-				startedAssistant = true
-			}
-
-			fmt.Print(token)
-		}
-
-		reply, usage, err := chat(conversation, onToken)
+		reply, usage, err := chat(conversation, renderer.onToken)
 		if err != nil {
+			renderer.stopSpinner()
 			fmt.Println(styleError("Error:"), err)
 
 			needUserInput = true
@@ -87,72 +65,19 @@ func main() {
 			}
 		}
 
+		// Save the assistant reply and print context usage.
 		conversation = append(conversation, reply)
 
-		if startedThinking && !thinkingEnded {
-			fmt.Println()
-			fmt.Println()
+		renderer.finish(reply, usage, conversation)
 
-			thinkingEnded = true
-		}
-
-		if !startedAssistant && reply.Content != "" {
-			fmt.Println(styleAssistant("Qwen:"), reply.Content)
-			printContextBadge(calculateContextMetrics(usage, conversation, reply))
-			fmt.Println()
-		} else if startedAssistant {
-			fmt.Println()
-			printContextBadge(calculateContextMetrics(usage, conversation, reply))
-			fmt.Println()
-		}
-
+		// Run requested tool calls, display results, and append tool outputs.
 		needUserInput = len(reply.ToolCalls) == 0
 
 		for _, toolCall := range reply.ToolCalls {
-			fmt.Println(styleTool("tool: " + toolCall.Function.Name))
+			printToolArgs(toolCall.Function.Name, toolCall.Function.Arguments)
 
-			var args map[string]any
-
-			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err == nil && len(args) > 0 {
-				keys := make([]string, 0, len(args))
-
-				for k := range args {
-					keys = append(keys, k)
-				}
-
-				sort.Strings(keys)
-
-				for _, k := range keys {
-					valStr := fmt.Sprintf("%v", args[k])
-					if len(valStr) > config.ToolArgPreviewMaxChars {
-						valStr = valStr[:config.ToolArgPreviewMaxChars-3] + "..."
-					}
-
-					valStr = strings.ReplaceAll(valStr, "\n", " ")
-					fmt.Println(styleMuted(fmt.Sprintf("  %s: %s", k, valStr)))
-				}
-			} else if strings.TrimSpace(toolCall.Function.Arguments) != "" {
-				fmt.Println(styleMuted("  args: " + toolCall.Function.Arguments))
-			}
-
-			toolOutput := tools.Execute(toolCall.Function.Name, toolCall.Function.Arguments)
-
-			if strings.HasPrefix(toolOutput, "error:") {
-				fmt.Println(styleError("  └─ " + toolOutput))
-			} else {
-				lines := strings.Split(toolOutput, "\n")
-				if len(lines) > 0 {
-					fmt.Println(styleSuccess("  └─ ") + styleMuted(lines[0]))
-
-					for _, line := range lines[1:] {
-						if strings.TrimSpace(line) != "" {
-							fmt.Println(styleMuted("     " + line))
-						}
-					}
-				}
-			}
-
-			fmt.Println()
+			toolOutput := tools.ExecuteWithSession(session, toolCall.Function.Name, toolCall.Function.Arguments)
+			printToolOutput(toolOutput)
 
 			conversation = append(conversation, Message{Role: "tool", ToolCallID: toolCall.ID, Content: toolOutput})
 		}
