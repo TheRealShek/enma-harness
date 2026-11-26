@@ -21,8 +21,47 @@ import (
 
 const (
 	metadataFileName = "meta.json"
-	messagesFileName = "messages.jsonl"
+	eventsFileName   = "events.jsonl"
 )
+
+// Event type constants for the append-only thread log.
+const (
+	EventThreadStarted = "thread.started"
+	EventUserMessage   = "user.message"
+	EventLLMResponse   = "llm.response"
+	EventLLMError      = "llm.error"
+	EventToolApproval  = "tool.approval"
+	EventToolResult    = "tool.result"
+)
+
+// Event represents one append-only entry in a thread's events.jsonl log.
+type Event struct {
+	Sequence  int64           `json:"sequence"`
+	Timestamp time.Time       `json:"timestamp"`
+	Type      string          `json:"type"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+// NewEvent constructs an Event with a UTC timestamp and JSON-encoded payload.
+func NewEvent(sequence int64, eventType string, payload any) (Event, error) {
+	var raw json.RawMessage
+
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return Event{}, fmt.Errorf("failed to encode %s payload: %w", eventType, err)
+		}
+
+		raw = encoded
+	}
+
+	return Event{
+		Sequence:  sequence,
+		Timestamp: time.Now().UTC(),
+		Type:      eventType,
+		Data:      raw,
+	}, nil
+}
 
 // Metadata stores mutable metadata for a saved conversation thread.
 type Metadata struct {
@@ -96,33 +135,37 @@ func (s *Store) SaveMetadata(meta *Metadata) error {
 	return atomicWriteFile(filepath.Join(s.threadDir(meta.ID), metadataFileName), data, 0o600)
 }
 
-// AppendMessage appends one JSON-encoded message line to messages.jsonl.
-func (s *Store) AppendMessage(id string, msg any) error {
-	data, err := json.Marshal(msg)
+// AppendEvent appends one JSON-encoded Event line to events.jsonl.
+func (s *Store) AppendEvent(id string, ev Event) error {
+	if ev.Timestamp.IsZero() {
+		ev.Timestamp = time.Now().UTC()
+	}
+
+	data, err := json.Marshal(ev)
 	if err != nil {
-		return fmt.Errorf("failed to encode message: %w", err)
+		return fmt.Errorf("failed to encode event: %w", err)
 	}
 
 	data = append(data, '\n')
 
-	path := filepath.Join(s.threadDir(id), messagesFileName)
+	path := filepath.Join(s.threadDir(id), eventsFileName)
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return fmt.Errorf("failed to open messages log: %w", err)
+		return fmt.Errorf("failed to open events log: %w", err)
 	}
 
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 
-		return fmt.Errorf("failed to append message: %w", err)
+		return fmt.Errorf("failed to append event: %w", err)
 	}
 
 	return f.Close()
 }
 
-// Load reads a thread's metadata and message lines, ignoring a truncated trailing line after a crash.
-func (s *Store) Load(id string) (*Metadata, []json.RawMessage, error) {
+// Load reads a thread's metadata and event lines, ignoring a truncated trailing line after a crash.
+func (s *Store) Load(id string) (*Metadata, []Event, error) {
 	metaBytes, err := os.ReadFile(filepath.Join(s.threadDir(id), metadataFileName))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read thread metadata: %w", err)
@@ -133,21 +176,21 @@ func (s *Store) Load(id string) (*Metadata, []json.RawMessage, error) {
 		return nil, nil, fmt.Errorf("failed to parse thread metadata: %w", err)
 	}
 
-	msgPath := filepath.Join(s.threadDir(id), messagesFileName)
+	eventsPath := filepath.Join(s.threadDir(id), eventsFileName)
 
-	f, err := os.Open(msgPath)
+	f, err := os.Open(eventsPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return &meta, nil, nil
 		}
 
-		return nil, nil, fmt.Errorf("failed to open messages log: %w", err)
+		return nil, nil, fmt.Errorf("failed to open events log: %w", err)
 	}
 
 	defer f.Close()
 
 	var (
-		messages []json.RawMessage
+		events   []Event
 		rawLines [][]byte
 	)
 
@@ -164,22 +207,23 @@ func (s *Store) Load(id string) (*Metadata, []json.RawMessage, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, nil, fmt.Errorf("failed to read messages log: %w", err)
+		return nil, nil, fmt.Errorf("failed to read events log: %w", err)
 	}
 
 	for i, line := range rawLines {
-		if !json.Valid(line) {
+		var ev Event
+		if err := json.Unmarshal(line, &ev); err != nil {
 			if i == len(rawLines)-1 {
 				break
 			}
 
-			return nil, nil, fmt.Errorf("corrupt message line %d in %s", i+1, id)
+			return nil, nil, fmt.Errorf("corrupt event line %d in %s: %w", i+1, id, err)
 		}
 
-		messages = append(messages, json.RawMessage(line))
+		events = append(events, ev)
 	}
 
-	return &meta, messages, nil
+	return &meta, events, nil
 }
 
 // List returns saved threads for projectRoot sorted newest UpdatedAt first.

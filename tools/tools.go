@@ -21,11 +21,12 @@ type Tool interface {
 	Run(rawArgs string) (string, error)
 }
 
-// Session tracks the project root, taint state, and user approval callback for tool calls.
+// Session tracks the project root, taint state, and approval callbacks for tool calls.
 type Session struct {
 	ProjectRoot string
 	Tainted     bool
 	Approve     func(action, target string, tainted bool) bool
+	OnApproval  func(action, target string, tainted, approved bool)
 }
 
 // All lists every active tool available in the harness.
@@ -78,17 +79,22 @@ func ExecuteWithSession(s *Session, name, rawArgs string) string {
 		realRoot = filepath.Clean(s.ProjectRoot)
 	}
 
-	realTarget, hasPath := extractRealPath(rawArgs)
+	realTarget, normalizedArgs, hasPath := prepareToolPath(s.ProjectRoot, name, rawArgs)
 
 	if hasPath {
 		if action, needsApproval := requiredApproval(s.Tainted, name, realRoot, realTarget); needsApproval {
-			if !s.requestApproval(action, realTarget) {
+			approved := s.requestApproval(action, realTarget)
+			if s.OnApproval != nil {
+				s.OnApproval(action, realTarget, s.Tainted, approved)
+			}
+
+			if !approved {
 				return "error: action denied by user"
 			}
 		}
 	}
 
-	out, err := t.Run(rawArgs)
+	out, err := t.Run(normalizedArgs)
 	if err != nil {
 		return "error: " + err.Error()
 	}
@@ -158,30 +164,46 @@ func isWriteTool(name string) bool {
 	return name == "write_file" || name == "edit_file"
 }
 
-func extractRealPath(rawArgs string) (string, bool) {
-	var payload struct {
-		Path string `json:"path"`
-	}
-
+// prepareToolPath resolves any path argument against projectRoot and rewrites relative paths in rawArgs to absolute paths.
+func prepareToolPath(projectRoot, toolName, rawArgs string) (string, string, bool) {
+	var payload map[string]any
 	if err := json.Unmarshal([]byte(rawArgs), &payload); err != nil {
-		return "", false
+		return "", rawArgs, false
 	}
 
-	if strings.TrimSpace(payload.Path) == "" {
-		return "", false
+	if payload == nil {
+		payload = make(map[string]any)
 	}
 
-	resolved, err := resolvePath(payload.Path)
+	rawPath, _ := payload["path"].(string)
+	trimmed := strings.TrimSpace(rawPath)
+
+	if trimmed == "" {
+		if toolName != "list_files" {
+			return "", rawArgs, false
+		}
+
+		trimmed = "."
+	}
+
+	resolved, err := resolvePathInRoot(projectRoot, trimmed)
 	if err != nil {
-		return "", false
+		return "", rawArgs, false
 	}
 
 	realPath, err := resolveRealPath(resolved)
 	if err != nil {
-		return resolved, true
+		realPath = resolved
 	}
 
-	return realPath, true
+	if projectRoot != "" {
+		payload["path"] = resolved
+		if encoded, err := json.Marshal(payload); err == nil {
+			rawArgs = string(encoded)
+		}
+	}
+
+	return realPath, rawArgs, true
 }
 
 // resolveRealPath resolves symlinks via the nearest existing ancestor so new or nested paths cannot hide their target.
@@ -294,16 +316,25 @@ func isUntrustedPath(root, target string) bool {
 
 // resolvePath strips any @ prefix and turns relative paths into absolute paths from the working directory.
 func resolvePath(rawPath string) (string, error) {
+	return resolvePathInRoot("", rawPath)
+}
+
+func resolvePathInRoot(root, rawPath string) (string, error) {
 	cleanPath := strings.TrimPrefix(strings.TrimSpace(rawPath), "@")
 	resolvedPath := filepath.Clean(cleanPath)
 
 	if !filepath.IsAbs(resolvedPath) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("unable to determine working directory: %w", err)
+		base := strings.TrimSpace(root)
+		if base == "" {
+			wd, err := os.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("unable to determine working directory: %w", err)
+			}
+
+			base = wd
 		}
 
-		resolvedPath = filepath.Join(wd, resolvedPath)
+		resolvedPath = filepath.Join(base, resolvedPath)
 	}
 
 	return resolvedPath, nil

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -14,7 +15,6 @@ import (
 func main() {
 	// Initialize conversation, stdin scanner, thread store, and tool approval session.
 	scanner := bufio.NewScanner(os.Stdin)
-	needUserInput := true
 
 	wd, _ := os.Getwd()
 
@@ -48,71 +48,51 @@ func main() {
 		},
 	}
 
-	cli := &cliSession{
-		store:        store,
-		projectRoot:  wd,
-		conversation: []Message{{Role: "system", Content: config.DefaultSystemPrompt}},
-		toolSession:  toolSession,
-		scanner:      scanner,
+	// Wire the headless runner and CLI command session.
+	runner := NewRunner(store, wd, toolSession)
+	runner.onWarning = func(msg string) {
+		fmt.Println(styleError(msg))
 	}
 
+	cli := &cliSession{
+		runner:  runner,
+		scanner: scanner,
+	}
+
+	// Read user prompts and handle slash commands before running a turn.
 	for {
-		// Prompt for user input when the previous turn has no pending tool calls.
-		if needUserInput {
-			fmt.Print(styleUser("You:") + " ")
+		fmt.Print(styleUser("You:") + " ")
 
-			if !scanner.Scan() {
-				break
-			}
-
-			input := scanner.Text()
-			if strings.TrimSpace(input) == "" {
-				continue
-			}
-
-			if cli.handleCommand(input) {
-				continue
-			}
-
-			cli.createThreadIfNeeded(input)
-			cli.appendMessage(Message{Role: "user", Content: input})
-
-			fmt.Println()
+		if !scanner.Scan() {
+			break
 		}
 
-		// Stream thinking and answer tokens from the model.
+		input := scanner.Text()
+		if strings.TrimSpace(input) == "" {
+			continue
+		}
+
+		if cli.handleCommand(input) {
+			continue
+		}
+
+		fmt.Println()
+
+		// Stream the model response and tool executions through the runner.
 		renderer := newStreamRenderer()
 
-		reply, usage, err := chat(cli.conversation, renderer.onToken)
-		if err != nil {
-			renderer.stopSpinner()
-			fmt.Println(styleError("Error:"), err)
-
-			needUserInput = true
-
-			if scanner.Text() == "" {
-				continue
-			}
-		}
-
-		// Save the assistant reply and print context usage.
-		cli.appendMessage(reply)
-
-		renderer.finish(reply, usage, cli.conversation)
-
-		// Run requested tool calls, display results, and append tool outputs.
-		needUserInput = len(reply.ToolCalls) == 0
-
-		for _, toolCall := range reply.ToolCalls {
-			printToolArgs(toolCall.Function.Name, toolCall.Function.Arguments)
-
-			toolOutput := tools.ExecuteWithSession(toolSession, toolCall.Function.Name, toolCall.Function.Arguments)
-
-			cli.persistTaintState()
-			printToolOutput(toolOutput)
-
-			cli.appendMessage(Message{Role: "tool", ToolCallID: toolCall.ID, Content: toolOutput})
-		}
+		_ = runner.RunPrompt(context.Background(), input, TurnHooks{
+			OnToken: renderer.onToken,
+			OnReply: func(reply Message, usage Usage, conversation []Message) {
+				renderer.finish(reply, usage, conversation)
+			},
+			OnToolStart:  printToolArgs,
+			OnToolResult: printToolOutput,
+			OnError: func(err error) {
+				renderer.stopSpinner()
+				fmt.Println(styleError("Error:"), err)
+			},
+		})
 	}
 
 	if err := scanner.Err(); err != nil {

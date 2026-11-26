@@ -2,25 +2,17 @@ package main
 
 import (
 	"bufio"
-	"cmp"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/therealshek/enma-harness/config"
 	"github.com/therealshek/enma-harness/threads"
-	"github.com/therealshek/enma-harness/tools"
 )
 
 type cliSession struct {
-	store             *threads.Store
-	projectRoot       string
-	activeThread      *threads.Metadata
-	pendingThreadName string
-	conversation      []Message
-	toolSession       *tools.Session
-	scanner           *bufio.Scanner
+	runner  *Runner
+	scanner *bufio.Scanner
 }
 
 // handleCommand runs a /threads, /resume, /rename, or /new command and reports whether input was a slash command.
@@ -59,14 +51,14 @@ func (s *cliSession) handleCommand(input string) bool {
 }
 
 func (s *cliSession) listThreads(page int) {
-	if s.store == nil {
+	if s.runner.store == nil {
 		fmt.Println(styleMuted("InMemoryOnly is enabled; no threads are stored."))
 		fmt.Println()
 
 		return
 	}
 
-	list, err := s.store.List(s.projectRoot)
+	list, err := s.runner.store.List(s.runner.projectRoot)
 	if err != nil {
 		fmt.Println(styleError("Error:"), err)
 		fmt.Println()
@@ -87,7 +79,7 @@ func (s *cliSession) listThreads(page int) {
 }
 
 func (s *cliSession) resumeThread(query string) {
-	if s.store == nil {
+	if s.runner.store == nil {
 		fmt.Println(styleMuted("InMemoryOnly is enabled; no threads are stored."))
 		fmt.Println()
 
@@ -95,7 +87,7 @@ func (s *cliSession) resumeThread(query string) {
 	}
 
 	if query != "" {
-		meta, err := s.store.Find(s.projectRoot, query)
+		meta, err := s.runner.store.Find(s.runner.projectRoot, query)
 		if err != nil {
 			fmt.Println(styleError("Error:"), err)
 			fmt.Println()
@@ -108,7 +100,7 @@ func (s *cliSession) resumeThread(query string) {
 		return
 	}
 
-	list, err := s.store.List(s.projectRoot)
+	list, err := s.runner.store.List(s.runner.projectRoot)
 	if err != nil {
 		fmt.Println(styleError("Error:"), err)
 		fmt.Println()
@@ -175,17 +167,17 @@ func (s *cliSession) renameThread(name string) {
 		return
 	}
 
-	if s.activeThread == nil {
-		s.pendingThreadName = name
+	if s.runner.activeThread == nil {
+		s.runner.pendingThreadName = name
 		fmt.Println(styleMuted("Thread name set to: " + name))
 		fmt.Println()
 
 		return
 	}
 
-	s.activeThread.Name = name
-	if s.store != nil {
-		if err := s.store.SaveMetadata(s.activeThread); err != nil {
+	s.runner.activeThread.Name = name
+	if s.runner.store != nil {
+		if err := s.runner.store.SaveMetadata(s.runner.activeThread); err != nil {
 			fmt.Println(styleError("Error:"), err)
 			fmt.Println()
 
@@ -198,10 +190,7 @@ func (s *cliSession) renameThread(name string) {
 }
 
 func (s *cliSession) startNewThread(name string) {
-	s.activeThread = nil
-	s.pendingThreadName = name
-	s.conversation = []Message{{Role: "system", Content: config.DefaultSystemPrompt}}
-	s.toolSession.Tainted = false
+	s.runner.Reset(name)
 
 	if name != "" {
 		fmt.Println(styleMuted("Started new thread: " + name))
@@ -217,7 +206,7 @@ func (s *cliSession) printThreadsPage(items []threads.Metadata, page, totalPages
 
 	for i, m := range items {
 		marker := " "
-		if s.activeThread != nil && s.activeThread.ID == m.ID {
+		if s.runner.activeThread != nil && s.runner.activeThread.ID == m.ID {
 			marker = "*"
 		}
 
@@ -231,7 +220,7 @@ func (s *cliSession) printThreadsPage(items []threads.Metadata, page, totalPages
 }
 
 func (s *cliSession) loadThread(id string) {
-	meta, rawMsgs, err := s.store.Load(id)
+	meta, err := s.runner.LoadThread(id)
 	if err != nil {
 		fmt.Println(styleError("Error:"), err)
 		fmt.Println()
@@ -239,75 +228,6 @@ func (s *cliSession) loadThread(id string) {
 		return
 	}
 
-	loaded := make([]Message, 0, len(rawMsgs)+1)
-
-	for _, raw := range rawMsgs {
-		var msg Message
-		if err := json.Unmarshal(raw, &msg); err != nil {
-			continue
-		}
-
-		loaded = append(loaded, msg)
-	}
-
-	if len(loaded) == 0 || loaded[0].Role != "system" {
-		loaded = append([]Message{{Role: "system", Content: config.DefaultSystemPrompt}}, loaded...)
-	}
-
-	s.activeThread = meta
-	s.pendingThreadName = ""
-	s.conversation = loaded
-	s.toolSession.Tainted = meta.Tainted
-
-	fmt.Println(styleMuted(fmt.Sprintf("Resumed %q (%d messages, tainted=%v)", meta.Name, len(loaded)-1, meta.Tainted)))
+	fmt.Println(styleMuted(fmt.Sprintf("Resumed %q (%d messages, tainted=%v)", meta.Name, len(s.runner.conversation)-1, s.runner.toolSession.Tainted)))
 	fmt.Println()
-}
-
-// createThreadIfNeeded initializes the thread directory on disk when the first real prompt is sent.
-func (s *cliSession) createThreadIfNeeded(firstPrompt string) {
-	if s.store == nil || s.activeThread != nil {
-		return
-	}
-
-	name := cmp.Or(s.pendingThreadName, threads.NameFromPrompt(firstPrompt))
-
-	meta, err := s.store.Create(s.projectRoot, config.DefaultModel, name, s.toolSession.Tainted)
-	if err != nil {
-		fmt.Println(styleError("Warning: failed to create thread:"), err)
-
-		return
-	}
-
-	s.activeThread = meta
-	s.pendingThreadName = ""
-
-	if len(s.conversation) > 0 {
-		if err := s.store.AppendMessage(meta.ID, s.conversation[0]); err != nil {
-			fmt.Println(styleError("Warning: failed to save system message:"), err)
-		}
-	}
-}
-
-func (s *cliSession) appendMessage(msg Message) {
-	s.conversation = append(s.conversation, msg)
-
-	if s.store != nil && s.activeThread != nil {
-		if err := s.store.AppendMessage(s.activeThread.ID, msg); err != nil {
-			fmt.Println(styleError("Warning: failed to save message:"), err)
-		}
-	}
-}
-
-func (s *cliSession) persistTaintState() {
-	if s.store == nil || s.activeThread == nil {
-		return
-	}
-
-	if s.toolSession.Tainted && !s.activeThread.Tainted {
-		s.activeThread.Tainted = true
-
-		if err := s.store.SaveMetadata(s.activeThread); err != nil {
-			fmt.Println(styleError("Warning: failed to save taint state:"), err)
-		}
-	}
 }

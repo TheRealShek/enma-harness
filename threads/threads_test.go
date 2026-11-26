@@ -14,19 +14,24 @@ func TestStoreLifecycleAndPagination(t *testing.T) {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	if err := store.AppendMessage(meta.ID, map[string]string{"role": "user", "content": "hi"}); err != nil {
-		t.Fatalf("AppendMessage failed: %v", err)
+	ev, err := NewEvent(1, EventUserMessage, map[string]string{"content": "hi"})
+	if err != nil {
+		t.Fatalf("NewEvent failed: %v", err)
+	}
+
+	if err := store.AppendEvent(meta.ID, ev); err != nil {
+		t.Fatalf("AppendEvent failed: %v", err)
 	}
 
 	// Simulate a truncated trailing line from a crash mid-write.
-	msgPath := filepath.Join(store.BaseDir, meta.ID, messagesFileName)
+	eventsPath := filepath.Join(store.BaseDir, meta.ID, eventsFileName)
 
-	f, err := os.OpenFile(msgPath, os.O_WRONLY|os.O_APPEND, 0o600)
+	f, err := os.OpenFile(eventsPath, os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, _ = f.WriteString(`{"role":"assistant","con`)
+	_, _ = f.WriteString(`{"sequence":2,"type":"llm.response","data":{"con`)
 	_ = f.Close()
 
 	meta.Tainted = true
@@ -34,7 +39,7 @@ func TestStoreLifecycleAndPagination(t *testing.T) {
 		t.Fatalf("SaveMetadata failed: %v", err)
 	}
 
-	loadedMeta, msgs, err := store.Load(meta.ID)
+	loadedMeta, events, err := store.Load(meta.ID)
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -43,8 +48,8 @@ func TestStoreLifecycleAndPagination(t *testing.T) {
 		t.Errorf("loaded meta = %+v, want Tainted=true Name=auth-fix", loadedMeta)
 	}
 
-	if len(msgs) != 1 {
-		t.Fatalf("len(msgs) = %d, want 1 (truncated last line should be skipped)", len(msgs))
+	if len(events) != 1 || events[0].Type != EventUserMessage || events[0].Sequence != 1 {
+		t.Fatalf("events = %+v, want 1 user.message event (truncated last line should be skipped)", events)
 	}
 
 	found, err := store.Find("/proj/a", "auth-fix")

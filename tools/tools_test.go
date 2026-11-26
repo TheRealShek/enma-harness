@@ -148,4 +148,41 @@ func TestExecuteWithSessionSecurityGates(t *testing.T) {
 			t.Fatalf("expected approval prompt and write success, prompted=%v out=%q", prompted, out)
 		}
 	})
+
+	t.Run("relative paths resolve against ProjectRoot and OnApproval records decision", func(t *testing.T) {
+		var (
+			gotAction   string
+			gotApproved bool
+		)
+
+		s := &Session{
+			ProjectRoot: root,
+			Approve: func(action, target string, tainted bool) bool {
+				return false
+			},
+			OnApproval: func(action, target string, tainted, approved bool) {
+				gotAction = action
+				gotApproved = approved
+			},
+		}
+
+		// Relative read inside ProjectRoot should work even when process cwd is elsewhere.
+		if out := ExecuteWithSession(s, "read_file", mustJSON(t, map[string]any{"path": "untrusted/page.txt"})); !strings.Contains(out, "line1") {
+			t.Fatalf("expected relative read against ProjectRoot to succeed, got %q", out)
+		}
+
+		// JSON null arguments for list_files should resolve to ProjectRoot without panicking.
+		if out := ExecuteWithSession(s, "list_files", "null"); !strings.Contains(out, "untrusted/") {
+			t.Fatalf("expected list_files with null args to list ProjectRoot, got %q", out)
+		}
+
+		// Relative sensitive write triggers OnApproval with approved=false.
+		if out := ExecuteWithSession(s, "write_file", mustJSON(t, map[string]any{"path": ".mcp.json", "content": "{}"})); !strings.HasPrefix(out, "error: action denied") {
+			t.Fatalf("expected denial, got %q", out)
+		}
+
+		if gotAction == "" || gotApproved {
+			t.Fatalf("OnApproval = (%q, %v), want non-empty action and approved=false", gotAction, gotApproved)
+		}
+	})
 }
