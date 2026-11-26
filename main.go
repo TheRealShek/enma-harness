@@ -7,17 +7,29 @@ import (
 	"strings"
 
 	"github.com/therealshek/enma-harness/config"
+	"github.com/therealshek/enma-harness/threads"
 	"github.com/therealshek/enma-harness/tools"
 )
 
 func main() {
-	// Initialize conversation, stdin scanner, and tool approval session.
-	conversation := []Message{{Role: "system", Content: config.DefaultSystemPrompt}}
+	// Initialize conversation, stdin scanner, thread store, and tool approval session.
 	scanner := bufio.NewScanner(os.Stdin)
 	needUserInput := true
 
 	wd, _ := os.Getwd()
-	session := &tools.Session{
+
+	var store *threads.Store
+
+	if !config.InMemoryOnly {
+		var err error
+
+		store, err = threads.DefaultStore()
+		if err != nil {
+			fmt.Println(styleError("Warning: thread persistence disabled:"), err)
+		}
+	}
+
+	toolSession := &tools.Session{
 		ProjectRoot: wd,
 		Approve: func(action, target string, tainted bool) bool {
 			if tainted {
@@ -36,6 +48,14 @@ func main() {
 		},
 	}
 
+	cli := &cliSession{
+		store:        store,
+		projectRoot:  wd,
+		conversation: []Message{{Role: "system", Content: config.DefaultSystemPrompt}},
+		toolSession:  toolSession,
+		scanner:      scanner,
+	}
+
 	for {
 		// Prompt for user input when the previous turn has no pending tool calls.
 		if needUserInput {
@@ -45,7 +65,17 @@ func main() {
 				break
 			}
 
-			conversation = append(conversation, Message{Role: "user", Content: scanner.Text()})
+			input := scanner.Text()
+			if strings.TrimSpace(input) == "" {
+				continue
+			}
+
+			if cli.handleCommand(input) {
+				continue
+			}
+
+			cli.createThreadIfNeeded(input)
+			cli.appendMessage(Message{Role: "user", Content: input})
 
 			fmt.Println()
 		}
@@ -53,7 +83,7 @@ func main() {
 		// Stream thinking and answer tokens from the model.
 		renderer := newStreamRenderer()
 
-		reply, usage, err := chat(conversation, renderer.onToken)
+		reply, usage, err := chat(cli.conversation, renderer.onToken)
 		if err != nil {
 			renderer.stopSpinner()
 			fmt.Println(styleError("Error:"), err)
@@ -66,9 +96,9 @@ func main() {
 		}
 
 		// Save the assistant reply and print context usage.
-		conversation = append(conversation, reply)
+		cli.appendMessage(reply)
 
-		renderer.finish(reply, usage, conversation)
+		renderer.finish(reply, usage, cli.conversation)
 
 		// Run requested tool calls, display results, and append tool outputs.
 		needUserInput = len(reply.ToolCalls) == 0
@@ -76,10 +106,12 @@ func main() {
 		for _, toolCall := range reply.ToolCalls {
 			printToolArgs(toolCall.Function.Name, toolCall.Function.Arguments)
 
-			toolOutput := tools.ExecuteWithSession(session, toolCall.Function.Name, toolCall.Function.Arguments)
+			toolOutput := tools.ExecuteWithSession(toolSession, toolCall.Function.Name, toolCall.Function.Arguments)
+
+			cli.persistTaintState()
 			printToolOutput(toolOutput)
 
-			conversation = append(conversation, Message{Role: "tool", ToolCallID: toolCall.ID, Content: toolOutput})
+			cli.appendMessage(Message{Role: "tool", ToolCallID: toolCall.ID, Content: toolOutput})
 		}
 	}
 
