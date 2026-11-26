@@ -9,13 +9,15 @@ flowchart TD
     U["You: prompt"] --> S{"Starts with /?"}
     S -->|"/threads, /resume, /rename, /new"| C["cliSession.handleCommand (10 per page)"]
     C --> U
-    S -->|"Normal prompt"| L["createThreadIfNeeded + append user msg"]
+    S -->|"Normal prompt"| L["Runner.RunPrompt -> thread.started + user.message"]
     L --> M["chat(conversation, renderer.onToken)"]
-    M --> A["append assistant reply + renderer.finish"]
+    M -->|error| ERR["llm.error + renderer.stopSpinner"]
+    ERR --> U
+    M -->|ok| A["llm.response + renderer.finish"]
     A --> T{"reply.ToolCalls?"}
     T -->|No| U
     T -->|Yes| E["tools.ExecuteWithSession (symlink + taint + approval gates)"]
-    E --> P["persistTaintState + append tool msg"]
+    E --> P["tool.approval + tool.result + persistTaintState"]
     P --> M
 ```
 
@@ -46,9 +48,9 @@ Before a tool runs, `resolveRealPath` walks up to the nearest existing parent fo
 When `InMemoryOnly` is false, `threads.Store` saves each conversation under `~/.enma/threads/<YYYYMMDD-HHMMSS-hex>/`:
 
 - `meta.json` holds `id`, `name`, `project_root`, `model`, `tainted`, and timestamps, written atomically.
-- `messages.jsonl` appends one JSON `Message` per line as each message happens. On load, a truncated trailing line from a crash is ignored instead of breaking the whole thread.
+- `events.jsonl` appends one JSON `Event` per line (`thread.started`, `user.message`, `llm.response`, `llm.error`, `tool.approval`, `tool.result`) with zero duplicate message snapshots. On load, a truncated trailing line from a crash is ignored instead of breaking the whole thread, and `foldEvents` reconstructs `[]Message` and `Tainted` for `/resume`.
 
-Keeping `meta.json` separate from `messages.jsonl` lets `/rename` and taint updates happen without rewriting message history. Resuming a thread also restores `Session.Tainted` from `meta.json`.
+Keeping `meta.json` separate from `events.jsonl` lets `/rename` and taint updates happen without rewriting event history. Resuming a thread restores both `conversation` and `Session.Tainted`.
 
 ## 4. Streaming, display, and context (`chat.go`, `display.go`, `context.go`)
 
@@ -58,6 +60,6 @@ Keeping `meta.json` separate from `messages.jsonl` lets `/rename` and taint upda
 
 `context.go` counts prompt, completion, tool, and reasoning tokens against `MaxContextTokens` and prints the context badge after each reply.
 
-## 5. The CLI loop (`main.go`, `commands.go`)
+## 5. Runner and CLI loop (`runner.go`, `main.go`, `commands.go`)
 
-`main.go` wires `threads.Store`, `tools.Session`, and `cliSession`, then loops at the `You:` prompt. No thread folder is created on disk until you send a real prompt, so slash-only sessions (`/threads`, `/resume`, `/rename`, `/new`) leave nothing behind.
+`runner.go` decouples the prompt-model-tool loop (`Runner.RunPrompt`) from terminal I/O so it can run both interactively and headless. `main.go` wires `threads.Store`, `tools.Session`, `Runner`, and `cliSession`, then loops at the `You:` prompt. No thread folder is created on disk until you send a real prompt, so slash-only sessions (`/threads`, `/resume`, `/rename`, `/new`) leave nothing behind.
