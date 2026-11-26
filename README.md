@@ -1,18 +1,18 @@
 # Enma Harness
 
-Enma Harness is a minimal Go CLI agent that streams responses from an OpenAI-compatible model endpoint, runs local file tools behind taint and approval gates, and stores named threads under `~/.enma/threads/`.
+Enma Harness is a small Go CLI agent that talks to any OpenAI-compatible chat completions server, runs local file tools behind taint and approval gates, and saves named threads under `~/.enma/threads/`.
 
-It is an early-stage personal harness built around local models (such as `qwen3:4b` on Ollama) and an 8,192-token default context window.
+`config/config.go` currently defaults to `qwen3:4b` on Ollama (`http://localhost:11434/v1/chat/completions`) and an `8,192`-token context window for local testing. Those defaults are temporary and can be swapped for any OpenAI-compatible model and context size.
 
 ## Getting started
 
-Make sure an OpenAI-compatible server is running at the endpoint in `config/config.go` (default `http://localhost:11434/v1/chat/completions` with `qwen3:4b`), then run:
+Make sure Go and an OpenAI-compatible server are running (check `config/config.go` for the current endpoint and model defaults), then start the CLI:
 
 ```bash
 go run .
 ```
 
-At the `You:` prompt, type a message or use a slash command:
+At the `You:` prompt, type a prompt or use a slash command:
 
 - `/threads [page]` lists saved threads for the current directory (10 per page).
 - `/resume [name-or-id]` resumes a saved thread, or opens the paginated picker.
