@@ -96,7 +96,7 @@ func TestCalculateContextMetrics(t *testing.T) {
 	usage := Usage{
 		PromptTokens:     1000,
 		CompletionTokens: 500,
-		TotalTokens:      4096,
+		TotalTokens:      config.MaxContextTokens / 2,
 	}
 	conversation := []Message{
 		{Role: "user", Content: "hi"},
@@ -106,8 +106,8 @@ func TestCalculateContextMetrics(t *testing.T) {
 
 	metrics := calculateContextMetrics(usage, conversation, reply)
 
-	if metrics.TotalTokens != 4096 {
-		t.Errorf("TotalTokens = %d, want 4096", metrics.TotalTokens)
+	if metrics.TotalTokens != config.MaxContextTokens/2 {
+		t.Errorf("TotalTokens = %d, want %d", metrics.TotalTokens, config.MaxContextTokens/2)
 	}
 
 	if metrics.MaxTokens != config.MaxContextTokens {

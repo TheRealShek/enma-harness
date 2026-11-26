@@ -2,7 +2,7 @@
 
 Enma Harness is a small Go CLI agent that talks to any OpenAI-compatible chat completions server, runs local file tools behind taint and approval gates, and saves named threads under `~/.enma/threads/`.
 
-`config/config.go` currently defaults to `qwen3:4b` on Ollama (`http://localhost:11434/v1/chat/completions`) and an `8,192`-token context window for local testing. Those defaults are temporary and can be swapped for any OpenAI-compatible model and context size.
+`config/config.go` currently defaults to `qwen35-4b-32k` on Ollama (`http://localhost:11434/v1/chat/completions`) and a `32,768`-token context window for local testing. Those defaults are temporary and can be swapped for any OpenAI-compatible model and context size.
 
 ## Getting started
 

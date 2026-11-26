@@ -3,13 +3,13 @@ package config
 // Model and API defaults.
 const (
 	ChatCompletionsURL  = "http://localhost:11434/v1/chat/completions"
-	DefaultModel        = "qwen3:4b"
+	DefaultModel        = "qwen35-4b-32k"
 	DefaultSystemPrompt = "Answer directly. Avoid meta commentary, self-evaluation, and unnecessary explanations. Keep internal reasoning concise and minimal. Explain only when asked or when needed for clarity. Keep responses concise but complete."
 )
 
 // Context, streaming, and display settings.
 const (
-	MaxContextTokens         = 8192
+	MaxContextTokens         = 32768
 	StreamInitialBufferBytes = 64 * 1024
 	StreamMaxBufferBytes     = 1024 * 1024
 	ToolArgPreviewMaxChars   = 60
@@ -33,16 +33,6 @@ const (
 )
 
 // Security policy path rules.
-// Context, streaming, and display settings.
-const (
-	MaxContextTokens         = 8192
-	StreamInitialBufferBytes = 64 * 1024
-	StreamMaxBufferBytes     = 1024 * 1024
-	ToolArgPreviewMaxChars   = 60
-	ShowThinkingTraces       = false
-	InMemoryOnly             = false
-)
-
 var (
 	// AlwaysSensitive requires approval before writing, even in an untainted session.
 	AlwaysSensitive = []string{
