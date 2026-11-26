@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/therealshek/enma-harness/config"
 )
 
 func TestListFilesRun(t *testing.T) {
@@ -93,7 +95,7 @@ func TestListFilesRun(t *testing.T) {
 	t.Run("caps output at maxListEntries", func(t *testing.T) {
 		dir := t.TempDir()
 
-		total := maxListEntries + 5
+		total := config.ListFilesMaxEntries + 5
 		for i := range total {
 			name := fmt.Sprintf("file-%03d", i)
 			if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
@@ -106,7 +108,7 @@ func TestListFilesRun(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		wantFooter := fmt.Sprintf("[Showing entries 1-%d of %d]", maxListEntries, total)
+		wantFooter := fmt.Sprintf("[Showing entries 1-%d of %d]", config.ListFilesMaxEntries, total)
 		if !strings.HasSuffix(out, wantFooter) {
 			t.Errorf("output should end with %q, got tail %q", wantFooter, out[len(out)-50:])
 		}

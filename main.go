@@ -8,18 +8,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/therealshek/enma-harness/config"
 	"github.com/therealshek/enma-harness/tools"
 )
 
-const (
-	url              = "http://localhost:11434/v1/chat/completions"
-	model            = "qwen3:4b"
-	systemPrompt     = "Answer directly. Avoid meta commentary, self-evaluation, and unnecessary explanations. Keep internal reasoning concise and minimal. Explain only when asked or when needed for clarity. Keep responses concise but complete."
-	maxContextTokens = 8192
-)
-
 func main() {
-	conversation := []Message{{Role: "system", Content: systemPrompt}}
+	conversation := []Message{{Role: "system", Content: config.DefaultSystemPrompt}}
 	scanner := bufio.NewScanner(os.Stdin)
 	needUserInput := true
 
@@ -130,8 +124,8 @@ func main() {
 
 				for _, k := range keys {
 					valStr := fmt.Sprintf("%v", args[k])
-					if len(valStr) > 60 {
-						valStr = valStr[:57] + "..."
+					if len(valStr) > config.ToolArgPreviewMaxChars {
+						valStr = valStr[:config.ToolArgPreviewMaxChars-3] + "..."
 					}
 
 					valStr = strings.ReplaceAll(valStr, "\n", " ")

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-)
 
-const maxListEntries = 100
+	"github.com/therealshek/enma-harness/config"
+)
 
 type ListFilesTool struct{}
 
@@ -39,7 +39,7 @@ func (l *ListFilesTool) Parameters() map[string]any {
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "Limit on how many items to list (max 100 items).",
+				"description": fmt.Sprintf("Limit on how many items to list (max %d items).", config.ListFilesMaxEntries),
 			},
 		},
 	}
@@ -111,7 +111,7 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 			break
 		}
 
-		if len(selected) >= maxListEntries {
+		if len(selected) >= config.ListFilesMaxEntries {
 			stoppedBySizeCap = true
 
 			break

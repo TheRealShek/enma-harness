@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/therealshek/enma-harness/config"
 )
 
 func TestReadFileRun(t *testing.T) {
@@ -43,7 +45,7 @@ func TestReadFileRun(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "many.txt")
 
-		lines := make([]string, maxReadLines+5)
+		lines := make([]string, config.ReadFileMaxLines+5)
 		for i := range lines {
 			lines[i] = fmt.Sprintf("line %d", i+1)
 		}
@@ -57,7 +59,7 @@ func TestReadFileRun(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		wantFooter := fmt.Sprintf("[Showing lines 1-%d of %d]", maxReadLines, maxReadLines+5)
+		wantFooter := fmt.Sprintf("[Showing lines 1-%d of %d]", config.ReadFileMaxLines, config.ReadFileMaxLines+5)
 		if !strings.HasSuffix(out, wantFooter) {
 			t.Errorf("output should end with %q, got tail %q", wantFooter, out[len(out)-60:])
 		}
@@ -88,7 +90,7 @@ func TestReadFileRun(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "longline.txt")
 
-		if err := os.WriteFile(path, []byte(strings.Repeat("x", maxReadBytes+1)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(strings.Repeat("x", config.ReadFileMaxBytes+1)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 

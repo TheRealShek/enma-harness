@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/therealshek/enma-harness/config"
 )
 
 func formatWithCommas(number int) string {
@@ -63,8 +65,8 @@ func countReasoningTokens(usage Usage, reply Message) int {
 func calculateContextMetrics(usage Usage, conversation []Message, reply Message) ContextMetrics {
 	return ContextMetrics{
 		TotalTokens:     usage.TotalTokens,
-		MaxTokens:       maxContextTokens,
-		PercentUsed:     float64(usage.TotalTokens) / float64(maxContextTokens) * 100,
+		MaxTokens:       config.MaxContextTokens,
+		PercentUsed:     float64(usage.TotalTokens) / float64(config.MaxContextTokens) * 100,
 		InputTokens:     usage.PromptTokens,
 		OutputTokens:    usage.CompletionTokens,
 		ToolTokens:      countToolTokens(conversation),

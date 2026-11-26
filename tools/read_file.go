@@ -6,11 +6,8 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
-)
 
-const (
-	maxReadLines = 500
-	maxReadBytes = 10 * 1024
+	"github.com/therealshek/enma-harness/config"
 )
 
 type ReadFileTool struct{}
@@ -43,7 +40,7 @@ func (r *ReadFileTool) Parameters() map[string]any {
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "Limit on how many lines to read (max 500 lines).",
+				"description": fmt.Sprintf("Limit on how many lines to read (max %d lines).", config.ReadFileMaxLines),
 			},
 		},
 		"required": []string{"path"},
@@ -115,8 +112,8 @@ func (r *ReadFileTool) Run(rawArgs string) (string, error) {
 	}
 
 	firstLineIdx := args.Offset - 1
-	if len(lines[firstLineIdx]) > maxReadBytes {
-		return fmt.Sprintf("Line %d is over %d bytes cap; cannot display whole line.", args.Offset, maxReadBytes), nil
+	if len(lines[firstLineIdx]) > config.ReadFileMaxBytes {
+		return fmt.Sprintf("Line %d is over %d bytes cap; cannot display whole line.", args.Offset, config.ReadFileMaxBytes), nil
 	}
 
 	selected, stopReason := sliceLines(lines[args.Offset-1:], args.Limit)
@@ -154,7 +151,7 @@ func sliceLines(lines []string, limit int) ([]string, stopReason) {
 			return selected, stopLimit
 		}
 
-		if len(selected) >= maxReadLines {
+		if len(selected) >= config.ReadFileMaxLines {
 			return selected, stopCap
 		}
 
@@ -163,7 +160,7 @@ func sliceLines(lines []string, limit int) ([]string, stopReason) {
 			newlineBytes = 1
 		}
 
-		if totalBytes+len(line)+newlineBytes > maxReadBytes {
+		if totalBytes+len(line)+newlineBytes > config.ReadFileMaxBytes {
 			return selected, stopCap
 		}
 

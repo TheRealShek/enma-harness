@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/therealshek/enma-harness/config"
+)
 
 func TestFormatWithCommas(t *testing.T) {
 	cases := []struct {
@@ -106,8 +110,8 @@ func TestCalculateContextMetrics(t *testing.T) {
 		t.Errorf("TotalTokens = %d, want 4096", metrics.TotalTokens)
 	}
 
-	if metrics.MaxTokens != maxContextTokens {
-		t.Errorf("MaxTokens = %d, want %d", metrics.MaxTokens, maxContextTokens)
+	if metrics.MaxTokens != config.MaxContextTokens {
+		t.Errorf("MaxTokens = %d, want %d", metrics.MaxTokens, config.MaxContextTokens)
 	}
 
 	if metrics.PercentUsed != 50 {

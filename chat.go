@@ -9,12 +9,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/therealshek/enma-harness/config"
 	"github.com/therealshek/enma-harness/tools"
 )
 
 func chat(messages []Message, onToken func(token string, isThinking bool)) (Message, Usage, error) {
 	reqBody := Request{
-		Model:    model,
+		Model:    config.DefaultModel,
 		Messages: messages,
 		Tools:    tools.Specs(),
 		Stream:   true,
@@ -28,7 +29,7 @@ func chat(messages []Message, onToken func(token string, isThinking bool)) (Mess
 		return Message{}, Usage{}, err
 	}
 
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	resp, err := http.Post(config.ChatCompletionsURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
@@ -56,8 +57,8 @@ func chat(messages []Message, onToken func(token string, isThinking bool)) (Mess
 	var inThinkTag bool
 
 	scanner := bufio.NewScanner(resp.Body)
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	buf := make([]byte, config.StreamInitialBufferBytes)
+	scanner.Buffer(buf, config.StreamMaxBufferBytes)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
