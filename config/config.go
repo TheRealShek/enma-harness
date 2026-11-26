@@ -25,6 +25,9 @@ const (
 
 	// ToolArgPreviewMaxChars caps how many characters of a tool argument are printed in the CLI.
 	ToolArgPreviewMaxChars = 60
+
+	// ShowThinkingTraces prints model reasoning traces when true, or shows a loading indicator when false.
+	ShowThinkingTraces = false
 )
 
 // Tool output limits.
@@ -37,4 +40,20 @@ const (
 
 	// ListFilesMaxEntries caps how many directory entries list_files returns in one call.
 	ListFilesMaxEntries = 100
+
+	// UntrustedDirName is the folder name whose contents taint the session when read.
+	UntrustedDirName = "untrusted"
+)
+
+// Security policy path rules.
+var (
+	// Ask before write, delete or rename. Only paths that run code
+	// without the user choosing to run it.
+	AlwaysSensitive = []string{
+		".git", ".vscode", ".zed", ".mcp.json",
+		// plus your harness's own config file or folder
+	}
+
+	// Ask only when the session is tainted.
+	TaintedSensitive = []string{"AGENTS.md"}
 )

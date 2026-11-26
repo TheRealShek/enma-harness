@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -87,10 +88,7 @@ func chat(messages []Message, onToken func(token string, isThinking bool)) (Mess
 		for _, choice := range chunk.Choices {
 			delta := choice.Delta
 
-			reasoningToken := delta.Reasoning
-			if reasoningToken == "" && delta.ReasoningContent != "" {
-				reasoningToken = delta.ReasoningContent
-			}
+			reasoningToken := cmp.Or(delta.Reasoning, delta.ReasoningContent)
 
 			if reasoningToken != "" {
 				reasoningBuilder.WriteString(reasoningToken)

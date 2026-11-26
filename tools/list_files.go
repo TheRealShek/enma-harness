@@ -104,7 +104,7 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 
 	var selected []string
 
-	for i := firstIdx; i < total; i++ {
+	for _, e := range entries[firstIdx:] {
 		if hasLimit && len(selected) >= args.Limit {
 			stoppedByLimit = true
 
@@ -117,7 +117,6 @@ func (l *ListFilesTool) Run(rawArgs string) (string, error) {
 			break
 		}
 
-		e := entries[i]
 		name := e.Name()
 
 		if e.IsDir() {
