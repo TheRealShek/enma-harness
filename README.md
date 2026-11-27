@@ -25,6 +25,6 @@ Run the test suite with:
 go test -race ./...
 ```
 
-## Architecture
+## Architecture & Evals
 
-See [docs/architecture.md](docs/architecture.md) for how `config`, `tools`, `threads`, streaming, and the CLI loop fit together.
+See [docs/architecture.md](docs/architecture.md) for how `config`, `llm`, `threads`, `tools`, `harness`, and `cli` fit together, and [docs/evals.md](docs/evals.md) for running benchmarks against the linked [enma-evals](https://github.com/TheRealShek/enma-evals) suite.

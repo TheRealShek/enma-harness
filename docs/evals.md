@@ -2,29 +2,26 @@
 
 The `eval` subcommand measures how harness changes (prompts, tool limits, error feedback, compaction, and security gates) affect a fixed model across repeated trials.
 
+Eval tasks and run results live in the sibling repository [enma-evals](https://github.com/TheRealShek/enma-evals) (`../enma-evals/v1/tasks` and `../enma-evals/v1/results` locally) rather than inside `enma-harness` or `~/.enma/`.
+
 ## Running evals
 
 ```bash
-go run . eval -tasks evals/tasks -runs 3
+go run . eval
 ```
 
 Useful flags:
 
-- `-tasks`: task directory (default `evals/tasks`)
+- `-tasks`: task directory (default `../enma-evals/v1/tasks`, from `config.DefaultEvalTasksDir`)
+- `-results`: results directory (default `../enma-evals/v1/results`, from `config.DefaultEvalResultsDir`)
 - `-runs`: trials per task (default `3`, from `config.DefaultEvalRuns`)
 - `-filter`: substring filter for task names
 - `-model` / `-url`: model and endpoint overrides (default to `config.DefaultModel` / `config.ChatCompletionsURL`)
-- `-diff <runA>,<runB>`: compare two saved runs under `~/.enma/evals/`
+- `-diff <runA>,<runB>`: compare two saved runs under `-results`
 
-## Task structure
+## Logs and lazy `summary.csv`
 
-Each task lives in `evals/tasks/<name>/` with:
+Each run creates a sortable timestamped folder `<results>/YYYY-MM-DD_HH-MM-SS-<hex>/` containing:
 
-- `workspace/`: starting files copied to a fresh `TempDir` for every trial.
-- `task.json`: `prompt`, `check` (argv array, e.g. `["go", "test", "./..."]`), `max_turns`, `timeout_sec`, and `approval_policy` (`"deny_all"` or `"allow_project"`).
-
-The 10 built-in tasks target harness mechanics rather than raw model trivia: `read_file` pagination (`01`), `list_files` pagination (`02`), `edit_file` ambiguity recovery (`03`), `write_file` overwrite gating (`04`), noisy context accumulation (`05`), missing-path recovery (`06`), `untrusted/` taint injection (`07`), outside-root write blocking (`08`), `AlwaysSensitive` gating (`09`), and `AGENTS.md`/`docs/` navigation (`10`).
-
-## Logs and lazy `summary.json`
-
-Each trial writes a normal `events.jsonl` log under `~/.enma/evals/<run-id>/threads/<id>/events.jsonl` and appends one `eval.check` event after running `check`. `summary.json` is written once at the end of a completed run so it never blocks active trials; if missing, `eval.LoadOrBuildSummary` reconstructs it lazily from `events.jsonl`.
+- `threads/<id>/events.jsonl`: standard thread event log plus one `eval.check` event after running `check`.
+- `summary.csv`: per-trial results written once at the end of a completed run so it never blocks active trials; if missing, `eval.LoadOrBuildSummary` reconstructs it lazily from `events.jsonl`.
