@@ -1,4 +1,4 @@
-package main
+package harness
 
 import (
 	"cmp"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/therealshek/enma-harness/config"
+	"github.com/therealshek/enma-harness/llm"
 	"github.com/therealshek/enma-harness/threads"
 	"github.com/therealshek/enma-harness/tools"
 )
@@ -24,10 +25,10 @@ type userMessageData struct {
 }
 
 type llmResponseData struct {
-	Turn       int     `json:"turn"`
-	Message    Message `json:"message"`
-	Usage      Usage   `json:"usage"`
-	DurationMS int64   `json:"duration_ms"`
+	Turn       int         `json:"turn"`
+	Message    llm.Message `json:"message"`
+	Usage      llm.Usage   `json:"usage"`
+	DurationMS int64       `json:"duration_ms"`
 }
 
 type llmErrorData struct {
@@ -57,27 +58,30 @@ type toolResultData struct {
 // TurnHooks receives live callbacks during Runner.RunPrompt without coupling the loop to a terminal.
 type TurnHooks struct {
 	OnToken      func(token string, isThinking bool)
-	OnReply      func(reply Message, usage Usage, conversation []Message)
+	OnReply      func(reply llm.Message, usage llm.Usage, conversation []llm.Message)
 	OnToolStart  func(name, rawArgs string)
 	OnToolResult func(output string)
 	OnError      func(err error)
 }
 
 // ChatFunc sends a conversation to a model backend and streams tokens to onToken.
-type ChatFunc func(messages []Message, onToken func(token string, isThinking bool)) (Message, Usage, error)
+type ChatFunc func(ctx context.Context, messages []llm.Message, onToken func(token string, isThinking bool)) (llm.Message, llm.Usage, error)
 
 // Runner executes the prompt-model-tool loop and records delta events to threads.Store.
 type Runner struct {
-	store             *threads.Store
-	projectRoot       string
-	activeThread      *threads.Metadata
-	pendingThreadName string
-	eventSeq          int64
-	conversation      []Message
-	toolSession       *tools.Session
-	chatFn            ChatFunc
-	maxTurns          int
-	onWarning         func(msg string)
+	Store             *threads.Store
+	ProjectRoot       string
+	Model             string
+	APIURL            string
+	ActiveThread      *threads.Metadata
+	PendingThreadName string
+	MaxTurns          int
+	OnWarning         func(msg string)
+
+	eventSeq     int64
+	conversation []llm.Message
+	toolSession  *tools.Session
+	chatFn       ChatFunc
 }
 
 // NewRunner creates a Runner initialized with the default system prompt.
@@ -87,18 +91,29 @@ func NewRunner(store *threads.Store, projectRoot string, toolSession *tools.Sess
 	}
 
 	return &Runner{
-		store:        store,
-		projectRoot:  projectRoot,
-		conversation: []Message{{Role: "system", Content: config.DefaultSystemPrompt}},
+		Store:        store,
+		ProjectRoot:  projectRoot,
+		Model:        config.DefaultModel,
+		APIURL:       config.ChatCompletionsURL,
+		conversation: []llm.Message{{Role: "system", Content: config.DefaultSystemPrompt}},
 		toolSession:  toolSession,
-		chatFn:       chat,
 	}
 }
 
-// RunPrompt appends a user prompt and runs model/tool turns until the model stops calling tools or maxTurns is reached.
+// Conversation returns the current conversation messages.
+func (r *Runner) Conversation() []llm.Message {
+	return r.conversation
+}
+
+// ToolSession returns the runner's tool session.
+func (r *Runner) ToolSession() *tools.Session {
+	return r.toolSession
+}
+
+// RunPrompt appends a user prompt and runs model/tool turns until the model stops calling tools or MaxTurns is reached.
 func (r *Runner) RunPrompt(ctx context.Context, prompt string, hooks TurnHooks) error {
-	r.createThreadIfNeeded(prompt)
-	r.appendUserMessage(prompt)
+	r.CreateThreadIfNeeded(prompt)
+	r.AppendUserMessage(prompt)
 
 	turn := 0
 
@@ -108,17 +123,19 @@ func (r *Runner) RunPrompt(ctx context.Context, prompt string, hooks TurnHooks) 
 		}
 
 		turn++
-		if r.maxTurns > 0 && turn > r.maxTurns {
-			return fmt.Errorf("exceeded max turns (%d)", r.maxTurns)
+		if r.MaxTurns > 0 && turn > r.MaxTurns {
+			return fmt.Errorf("exceeded max turns (%d)", r.MaxTurns)
 		}
 
 		chatFn := r.chatFn
 		if chatFn == nil {
-			chatFn = chat
+			chatFn = func(ctx context.Context, messages []llm.Message, onToken func(string, bool)) (llm.Message, llm.Usage, error) {
+				return llm.ChatWithEndpoint(ctx, r.APIURL, r.Model, messages, onToken)
+			}
 		}
 
 		start := time.Now()
-		reply, usage, err := chatFn(r.conversation, hooks.OnToken)
+		reply, usage, err := chatFn(ctx, r.conversation, hooks.OnToken)
 		durationMS := time.Since(start).Milliseconds()
 
 		if err != nil {
@@ -159,13 +176,13 @@ func (r *Runner) RunPrompt(ctx context.Context, prompt string, hooks TurnHooks) 
 
 			toolOutput := r.executeToolCall(turn, tc)
 
-			r.persistTaintState()
+			r.PersistTaintState()
 
 			if hooks.OnToolResult != nil {
 				hooks.OnToolResult(toolOutput)
 			}
 
-			r.conversation = append(r.conversation, Message{
+			r.conversation = append(r.conversation, llm.Message{
 				Role:       "tool",
 				ToolCallID: tc.ID,
 				Content:    toolOutput,
@@ -174,7 +191,7 @@ func (r *Runner) RunPrompt(ctx context.Context, prompt string, hooks TurnHooks) 
 	}
 }
 
-func (r *Runner) executeToolCall(turn int, tc ToolCall) string {
+func (r *Runner) executeToolCall(turn int, tc llm.ToolCall) string {
 	prevOnApproval := r.toolSession.OnApproval
 	r.toolSession.OnApproval = func(action, target string, tainted, approved bool) {
 		r.recordEvent(threads.EventToolApproval, toolApprovalData{
@@ -213,28 +230,28 @@ func (r *Runner) executeToolCall(turn int, tc ToolCall) string {
 
 // Reset clears the active conversation and taint state for a fresh thread.
 func (r *Runner) Reset(name string) {
-	r.activeThread = nil
-	r.pendingThreadName = name
+	r.ActiveThread = nil
+	r.PendingThreadName = name
 	r.eventSeq = 0
-	r.conversation = []Message{{Role: "system", Content: config.DefaultSystemPrompt}}
+	r.conversation = []llm.Message{{Role: "system", Content: config.DefaultSystemPrompt}}
 	r.toolSession.Tainted = false
 }
 
 // LoadThread loads a saved thread from store and folds its event log into conversation state.
 func (r *Runner) LoadThread(id string) (*threads.Metadata, error) {
-	if r.store == nil {
+	if r.Store == nil {
 		return nil, errors.New("thread store is not configured")
 	}
 
-	meta, events, err := r.store.Load(id)
+	meta, events, err := r.Store.Load(id)
 	if err != nil {
 		return nil, err
 	}
 
 	loaded, tainted, lastSeq := foldEvents(events)
 
-	r.activeThread = meta
-	r.pendingThreadName = ""
+	r.ActiveThread = meta
+	r.PendingThreadName = ""
 	r.eventSeq = lastSeq
 	r.conversation = loaded
 	r.toolSession.Tainted = meta.Tainted || tainted
@@ -242,22 +259,24 @@ func (r *Runner) LoadThread(id string) (*threads.Metadata, error) {
 	return meta, nil
 }
 
-func (r *Runner) createThreadIfNeeded(firstPrompt string) {
-	if r.store == nil || r.activeThread != nil {
+// CreateThreadIfNeeded initializes the thread directory on disk on the first real user prompt.
+func (r *Runner) CreateThreadIfNeeded(firstPrompt string) {
+	if r.Store == nil || r.ActiveThread != nil {
 		return
 	}
 
-	name := cmp.Or(r.pendingThreadName, threads.NameFromPrompt(firstPrompt))
+	name := cmp.Or(r.PendingThreadName, threads.NameFromPrompt(firstPrompt))
+	model := cmp.Or(r.Model, config.DefaultModel)
 
-	meta, err := r.store.Create(r.projectRoot, config.DefaultModel, name, r.toolSession.Tainted)
+	meta, err := r.Store.Create(r.ProjectRoot, model, name, r.toolSession.Tainted)
 	if err != nil {
 		r.warn("Warning: failed to create thread: " + err.Error())
 
 		return
 	}
 
-	r.activeThread = meta
-	r.pendingThreadName = ""
+	r.ActiveThread = meta
+	r.PendingThreadName = ""
 	r.eventSeq = 0
 
 	systemPrompt := config.DefaultSystemPrompt
@@ -272,13 +291,14 @@ func (r *Runner) createThreadIfNeeded(firstPrompt string) {
 	})
 }
 
-func (r *Runner) appendUserMessage(content string) {
-	r.conversation = append(r.conversation, Message{Role: "user", Content: content})
+// AppendUserMessage appends a user prompt to the conversation and records a user.message event.
+func (r *Runner) AppendUserMessage(content string) {
+	r.conversation = append(r.conversation, llm.Message{Role: "user", Content: content})
 	r.recordEvent(threads.EventUserMessage, userMessageData{Content: content})
 }
 
 func (r *Runner) recordEvent(eventType string, payload any) {
-	if r.store == nil || r.activeThread == nil {
+	if r.Store == nil || r.ActiveThread == nil {
 		return
 	}
 
@@ -291,35 +311,36 @@ func (r *Runner) recordEvent(eventType string, payload any) {
 		return
 	}
 
-	if err := r.store.AppendEvent(r.activeThread.ID, ev); err != nil {
+	if err := r.Store.AppendEvent(r.ActiveThread.ID, ev); err != nil {
 		r.warn("Warning: failed to save event: " + err.Error())
 	}
 }
 
-func (r *Runner) persistTaintState() {
-	if r.store == nil || r.activeThread == nil {
+// PersistTaintState writes an updated Tainted flag to meta.json when a session becomes tainted.
+func (r *Runner) PersistTaintState() {
+	if r.Store == nil || r.ActiveThread == nil {
 		return
 	}
 
-	if r.toolSession.Tainted && !r.activeThread.Tainted {
-		r.activeThread.Tainted = true
+	if r.toolSession.Tainted && !r.ActiveThread.Tainted {
+		r.ActiveThread.Tainted = true
 
-		if err := r.store.SaveMetadata(r.activeThread); err != nil {
+		if err := r.Store.SaveMetadata(r.ActiveThread); err != nil {
 			r.warn("Warning: failed to save taint state: " + err.Error())
 		}
 	}
 }
 
 func (r *Runner) warn(msg string) {
-	if r.onWarning != nil {
-		r.onWarning(msg)
+	if r.OnWarning != nil {
+		r.OnWarning(msg)
 	}
 }
 
 // foldEvents reconstructs conversation messages, taint state, and the highest sequence number from an event log.
-func foldEvents(events []threads.Event) ([]Message, bool, int64) {
+func foldEvents(events []threads.Event) ([]llm.Message, bool, int64) {
 	systemPrompt := config.DefaultSystemPrompt
-	msgs := make([]Message, 0, len(events)+1)
+	msgs := make([]llm.Message, 0, len(events)+1)
 	tainted := false
 
 	var lastSeq int64
@@ -338,7 +359,7 @@ func foldEvents(events []threads.Event) ([]Message, bool, int64) {
 		case threads.EventUserMessage:
 			var data userMessageData
 			if err := json.Unmarshal(ev.Data, &data); err == nil {
-				msgs = append(msgs, Message{Role: "user", Content: data.Content})
+				msgs = append(msgs, llm.Message{Role: "user", Content: data.Content})
 			}
 		case threads.EventLLMResponse:
 			var data llmResponseData
@@ -350,7 +371,7 @@ func foldEvents(events []threads.Event) ([]Message, bool, int64) {
 		case threads.EventToolResult:
 			var data toolResultData
 			if err := json.Unmarshal(ev.Data, &data); err == nil {
-				msgs = append(msgs, Message{
+				msgs = append(msgs, llm.Message{
 					Role:       "tool",
 					ToolCallID: data.ToolCallID,
 					Content:    data.Output,
@@ -362,8 +383,8 @@ func foldEvents(events []threads.Event) ([]Message, bool, int64) {
 		}
 	}
 
-	out := make([]Message, 0, len(msgs)+1)
-	out = append(out, Message{Role: "system", Content: systemPrompt})
+	out := make([]llm.Message, 0, len(msgs)+1)
+	out = append(out, llm.Message{Role: "system", Content: systemPrompt})
 	out = append(out, msgs...)
 
 	return out, tainted, lastSeq

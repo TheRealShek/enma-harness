@@ -1,9 +1,10 @@
-package main
+package harness
 
 import (
 	"testing"
 
 	"github.com/therealshek/enma-harness/config"
+	"github.com/therealshek/enma-harness/llm"
 )
 
 func TestFormatWithCommas(t *testing.T) {
@@ -28,7 +29,7 @@ func TestFormatWithCommas(t *testing.T) {
 }
 
 func TestCountToolTokens(t *testing.T) {
-	messages := []Message{
+	messages := []llm.Message{
 		{Role: "system", Content: "system prompt"},
 		{Role: "user", Content: "user message"},
 		{Role: "tool", Content: "1234"},
@@ -49,36 +50,36 @@ func TestCountToolTokens(t *testing.T) {
 func TestCountReasoningTokens(t *testing.T) {
 	cases := []struct {
 		name  string
-		usage Usage
-		reply Message
+		usage llm.Usage
+		reply llm.Message
 		want  int
 	}{
 		{
 			name: "prefers explicit usage details",
-			usage: Usage{
-				CompletionTokensDetails: CompletionTokensDetails{ReasoningTokens: 42},
+			usage: llm.Usage{
+				CompletionTokensDetails: llm.CompletionTokensDetails{ReasoningTokens: 42},
 			},
-			reply: Message{Reasoning: "12345678", Content: "<think>1234</think>"},
+			reply: llm.Message{Reasoning: "12345678", Content: "<think>1234</think>"},
 			want:  42,
 		},
 		{
 			name:  "falls back to reply.Reasoning",
-			reply: Message{Reasoning: "12345", Content: "<think>1234</think>"},
+			reply: llm.Message{Reasoning: "12345", Content: "<think>1234</think>"},
 			want:  2,
 		},
 		{
 			name:  "falls back to think tags in Content",
-			reply: Message{Content: "before<think>12345678</think>after"},
+			reply: llm.Message{Content: "before<think>12345678</think>after"},
 			want:  2,
 		},
 		{
 			name:  "ignores unclosed or inverted think tags",
-			reply: Message{Content: "</think>abc<think>"},
+			reply: llm.Message{Content: "</think>abc<think>"},
 			want:  0,
 		},
 		{
 			name:  "returns zero when absent",
-			reply: Message{Content: "plain answer"},
+			reply: llm.Message{Content: "plain answer"},
 			want:  0,
 		},
 	}
@@ -93,18 +94,18 @@ func TestCountReasoningTokens(t *testing.T) {
 }
 
 func TestCalculateContextMetrics(t *testing.T) {
-	usage := Usage{
+	usage := llm.Usage{
 		PromptTokens:     1000,
 		CompletionTokens: 500,
 		TotalTokens:      config.MaxContextTokens / 2,
 	}
-	conversation := []Message{
+	conversation := []llm.Message{
 		{Role: "user", Content: "hi"},
 		{Role: "tool", Content: "12345678"},
 	}
-	reply := Message{Reasoning: "abcd"}
+	reply := llm.Message{Reasoning: "abcd"}
 
-	metrics := calculateContextMetrics(usage, conversation, reply)
+	metrics := CalculateContextMetrics(usage, conversation, reply)
 
 	if metrics.TotalTokens != config.MaxContextTokens/2 {
 		t.Errorf("TotalTokens = %d, want %d", metrics.TotalTokens, config.MaxContextTokens/2)

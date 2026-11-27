@@ -1,4 +1,4 @@
-package main
+package harness
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/therealshek/enma-harness/config"
+	"github.com/therealshek/enma-harness/llm"
 )
 
 func formatWithCommas(number int) string {
@@ -31,7 +32,7 @@ func formatWithCommas(number int) string {
 	return formatted.String()
 }
 
-func countToolTokens(messages []Message) int {
+func countToolTokens(messages []llm.Message) int {
 	total := 0
 
 	for _, msg := range messages {
@@ -43,7 +44,7 @@ func countToolTokens(messages []Message) int {
 	return total
 }
 
-func countReasoningTokens(usage Usage, reply Message) int {
+func countReasoningTokens(usage llm.Usage, reply llm.Message) int {
 	if usage.CompletionTokensDetails.ReasoningTokens > 0 {
 		return usage.CompletionTokensDetails.ReasoningTokens
 	}
@@ -62,8 +63,9 @@ func countReasoningTokens(usage Usage, reply Message) int {
 	return 0
 }
 
-func calculateContextMetrics(usage Usage, conversation []Message, reply Message) ContextMetrics {
-	return ContextMetrics{
+// CalculateContextMetrics computes prompt, completion, tool, and reasoning token metrics against MaxContextTokens.
+func CalculateContextMetrics(usage llm.Usage, conversation []llm.Message, reply llm.Message) llm.ContextMetrics {
+	return llm.ContextMetrics{
 		TotalTokens:     usage.TotalTokens,
 		MaxTokens:       config.MaxContextTokens,
 		PercentUsed:     float64(usage.TotalTokens) / float64(config.MaxContextTokens) * 100,
@@ -74,7 +76,8 @@ func calculateContextMetrics(usage Usage, conversation []Message, reply Message)
 	}
 }
 
-func printContextBadge(metrics ContextMetrics) {
+// FormatContextBadge formats context token metrics into a single-line status badge.
+func FormatContextBadge(metrics llm.ContextMetrics) string {
 	badge := fmt.Sprintf("[Context: %s / %s tokens (%.0f%%) | in: %s • out: %s • tool: %s",
 		formatWithCommas(metrics.TotalTokens),
 		formatWithCommas(metrics.MaxTokens),
@@ -88,6 +91,5 @@ func printContextBadge(metrics ContextMetrics) {
 		badge += fmt.Sprintf(" • reason: %s", formatWithCommas(metrics.ReasoningTokens))
 	}
 
-	badge += "]"
-	fmt.Println(styleMuted(badge))
+	return badge + "]"
 }

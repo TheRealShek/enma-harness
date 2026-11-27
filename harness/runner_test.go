@@ -1,4 +1,4 @@
-package main
+package harness
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/therealshek/enma-harness/llm"
 	"github.com/therealshek/enma-harness/threads"
 	"github.com/therealshek/enma-harness/tools"
 )
@@ -30,20 +31,20 @@ func TestRunnerEventsFoldAndApproval(t *testing.T) {
 	r := NewRunner(store, root, toolSession)
 
 	callNum := 0
-	r.chatFn = func(messages []Message, onToken func(string, bool)) (Message, Usage, error) {
+	r.chatFn = func(ctx context.Context, messages []llm.Message, onToken func(string, bool)) (llm.Message, llm.Usage, error) {
 		callNum++
 		switch callNum {
 		case 1:
-			return Message{
+			return llm.Message{
 				Role: "assistant",
-				ToolCalls: []ToolCall{{
+				ToolCalls: []llm.ToolCall{{
 					ID:       "tc_1",
 					Type:     "function",
-					Function: Function{Name: "write_file", Arguments: `{"path":".mcp.json","content":"{}"}`},
+					Function: llm.Function{Name: "write_file", Arguments: `{"path":".mcp.json","content":"{}"}`},
 				}},
-			}, Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}, nil
+			}, llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}, nil
 		default:
-			return Message{Role: "assistant", Content: "done"}, Usage{PromptTokens: 20, CompletionTokens: 3, TotalTokens: 23}, nil
+			return llm.Message{Role: "assistant", Content: "done"}, llm.Usage{PromptTokens: 20, CompletionTokens: 3, TotalTokens: 23}, nil
 		}
 	}
 
@@ -51,7 +52,7 @@ func TestRunnerEventsFoldAndApproval(t *testing.T) {
 		t.Fatalf("RunPrompt failed: %v", err)
 	}
 
-	meta, events, err := store.Load(r.activeThread.ID)
+	meta, events, err := store.Load(r.ActiveThread.ID)
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -99,15 +100,15 @@ func TestRunnerEventsFoldAndApproval(t *testing.T) {
 func TestRunnerLogsLLMErrorAndRespectsMaxTurns(t *testing.T) {
 	store := &threads.Store{BaseDir: t.TempDir()}
 	r := NewRunner(store, t.TempDir(), nil)
-	r.chatFn = func([]Message, func(string, bool)) (Message, Usage, error) {
-		return Message{}, Usage{}, errors.New("backend down")
+	r.chatFn = func(context.Context, []llm.Message, func(string, bool)) (llm.Message, llm.Usage, error) {
+		return llm.Message{}, llm.Usage{}, errors.New("backend down")
 	}
 
 	if err := r.RunPrompt(context.Background(), "hi", TurnHooks{}); err == nil {
 		t.Fatal("expected error from RunPrompt")
 	}
 
-	_, events, err := store.Load(r.activeThread.ID)
+	_, events, err := store.Load(r.ActiveThread.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,16 +119,16 @@ func TestRunnerLogsLLMErrorAndRespectsMaxTurns(t *testing.T) {
 
 	// Verify maxTurns stops infinite tool loops.
 	r.Reset("")
-	r.maxTurns = 1
-	r.chatFn = func([]Message, func(string, bool)) (Message, Usage, error) {
-		return Message{
+	r.MaxTurns = 1
+	r.chatFn = func(context.Context, []llm.Message, func(string, bool)) (llm.Message, llm.Usage, error) {
+		return llm.Message{
 			Role: "assistant",
-			ToolCalls: []ToolCall{{
+			ToolCalls: []llm.ToolCall{{
 				ID:       "tc_loop",
 				Type:     "function",
-				Function: Function{Name: "list_files", Arguments: `{"path":"."}`},
+				Function: llm.Function{Name: "list_files", Arguments: `{"path":"."}`},
 			}},
-		}, Usage{}, nil
+		}, llm.Usage{}, nil
 	}
 
 	if err := r.RunPrompt(context.Background(), "loop", TurnHooks{}); err == nil {

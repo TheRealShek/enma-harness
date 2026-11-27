@@ -1,4 +1,4 @@
-package main
+package cli
 
 const (
 	reset = "\033[0m"

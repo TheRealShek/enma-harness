@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"encoding/json"
@@ -11,12 +11,15 @@ import (
 	"time"
 
 	"github.com/therealshek/enma-harness/config"
+	"github.com/therealshek/enma-harness/harness"
+	"github.com/therealshek/enma-harness/llm"
 )
 
 var thinkingSpinnerFrames = []string{"◇", "◈", "◆", "◈"}
 
 type streamRenderer struct {
 	showThinking     bool
+	startedAt        time.Time
 	startedThinking  bool
 	thinkingEnded    bool
 	startedAssistant bool
@@ -30,6 +33,7 @@ type streamRenderer struct {
 func newStreamRenderer() *streamRenderer {
 	return &streamRenderer{
 		showThinking: config.ShowThinkingTraces,
+		startedAt:    time.Now(),
 	}
 }
 
@@ -67,16 +71,7 @@ func (r *streamRenderer) onToken(token string, isThinking bool) {
 		return
 	}
 
-	if r.startedThinking && !r.thinkingEnded {
-		r.stopSpinner()
-
-		if r.showThinking {
-			fmt.Println()
-			fmt.Println()
-		}
-
-		r.thinkingEnded = true
-	}
+	r.endThinking()
 
 	if !r.startedAssistant {
 		fmt.Print(styleAssistant("Qwen:") + " ")
@@ -88,27 +83,57 @@ func (r *streamRenderer) onToken(token string, isThinking bool) {
 }
 
 // finish closes any open thinking block, prints unstreamed content, and shows context metrics.
-func (r *streamRenderer) finish(reply Message, usage Usage, conversation []Message) {
-	if r.startedThinking && !r.thinkingEnded {
-		r.stopSpinner()
-
-		if r.showThinking {
-			fmt.Println()
-			fmt.Println()
-		}
-
-		r.thinkingEnded = true
-	}
+func (r *streamRenderer) finish(reply llm.Message, usage llm.Usage, conversation []llm.Message) {
+	r.endThinking()
 
 	if !r.startedAssistant && reply.Content != "" {
 		fmt.Println(styleAssistant("Qwen:"), reply.Content)
-		printContextBadge(calculateContextMetrics(usage, conversation, reply))
+		fmt.Println(styleMuted(harness.FormatContextBadge(harness.CalculateContextMetrics(usage, conversation, reply))))
 		fmt.Println()
 	} else if r.startedAssistant {
 		fmt.Println()
-		printContextBadge(calculateContextMetrics(usage, conversation, reply))
+		fmt.Println(styleMuted(harness.FormatContextBadge(harness.CalculateContextMetrics(usage, conversation, reply))))
 		fmt.Println()
 	}
+}
+
+// endThinking stops the spinner and prints total elapsed thinking time when reasoning traces are hidden.
+func (r *streamRenderer) endThinking() {
+	if !r.startedThinking || r.thinkingEnded {
+		return
+	}
+
+	r.stopSpinner()
+
+	if r.showThinking {
+		fmt.Println()
+		fmt.Println()
+	} else if !r.startedAt.IsZero() {
+		fmt.Println(styleMuted(formatThoughtDuration(time.Since(r.startedAt))))
+	}
+
+	r.thinkingEnded = true
+}
+
+// formatThoughtDuration formats elapsed thinking time in seconds or minutes and seconds.
+func formatThoughtDuration(d time.Duration) string {
+	if d < time.Second {
+		return "Thought for <1s"
+	}
+
+	secs := int(d.Round(time.Second).Seconds())
+	if secs < 60 {
+		return fmt.Sprintf("Thought for %ds", secs)
+	}
+
+	mins := secs / 60
+	rem := secs % 60
+
+	if rem == 0 {
+		return fmt.Sprintf("Thought for %dm", mins)
+	}
+
+	return fmt.Sprintf("Thought for %dm %ds", mins, rem)
 }
 
 func (r *streamRenderer) startSpinner() {

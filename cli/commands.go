@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bufio"
@@ -7,11 +7,12 @@ import (
 	"strings"
 
 	"github.com/therealshek/enma-harness/config"
+	"github.com/therealshek/enma-harness/harness"
 	"github.com/therealshek/enma-harness/threads"
 )
 
 type cliSession struct {
-	runner  *Runner
+	runner  *harness.Runner
 	scanner *bufio.Scanner
 }
 
@@ -51,14 +52,14 @@ func (s *cliSession) handleCommand(input string) bool {
 }
 
 func (s *cliSession) listThreads(page int) {
-	if s.runner.store == nil {
+	if s.runner.Store == nil {
 		fmt.Println(styleMuted("InMemoryOnly is enabled; no threads are stored."))
 		fmt.Println()
 
 		return
 	}
 
-	list, err := s.runner.store.List(s.runner.projectRoot)
+	list, err := s.runner.Store.List(s.runner.ProjectRoot)
 	if err != nil {
 		fmt.Println(styleError("Error:"), err)
 		fmt.Println()
@@ -79,7 +80,7 @@ func (s *cliSession) listThreads(page int) {
 }
 
 func (s *cliSession) resumeThread(query string) {
-	if s.runner.store == nil {
+	if s.runner.Store == nil {
 		fmt.Println(styleMuted("InMemoryOnly is enabled; no threads are stored."))
 		fmt.Println()
 
@@ -87,7 +88,7 @@ func (s *cliSession) resumeThread(query string) {
 	}
 
 	if query != "" {
-		meta, err := s.runner.store.Find(s.runner.projectRoot, query)
+		meta, err := s.runner.Store.Find(s.runner.ProjectRoot, query)
 		if err != nil {
 			fmt.Println(styleError("Error:"), err)
 			fmt.Println()
@@ -100,7 +101,7 @@ func (s *cliSession) resumeThread(query string) {
 		return
 	}
 
-	list, err := s.runner.store.List(s.runner.projectRoot)
+	list, err := s.runner.Store.List(s.runner.ProjectRoot)
 	if err != nil {
 		fmt.Println(styleError("Error:"), err)
 		fmt.Println()
@@ -115,6 +116,11 @@ func (s *cliSession) resumeThread(query string) {
 		return
 	}
 
+	s.pickThreadInteractive(list)
+}
+
+// pickThreadInteractive paginates saved threads on stdin until the user picks one or cancels.
+func (s *cliSession) pickThreadInteractive(list []threads.Metadata) {
 	page := 1
 
 	for {
@@ -167,17 +173,17 @@ func (s *cliSession) renameThread(name string) {
 		return
 	}
 
-	if s.runner.activeThread == nil {
-		s.runner.pendingThreadName = name
+	if s.runner.ActiveThread == nil {
+		s.runner.PendingThreadName = name
 		fmt.Println(styleMuted("Thread name set to: " + name))
 		fmt.Println()
 
 		return
 	}
 
-	s.runner.activeThread.Name = name
-	if s.runner.store != nil {
-		if err := s.runner.store.SaveMetadata(s.runner.activeThread); err != nil {
+	s.runner.ActiveThread.Name = name
+	if s.runner.Store != nil {
+		if err := s.runner.Store.SaveMetadata(s.runner.ActiveThread); err != nil {
 			fmt.Println(styleError("Error:"), err)
 			fmt.Println()
 
@@ -206,7 +212,7 @@ func (s *cliSession) printThreadsPage(items []threads.Metadata, page, totalPages
 
 	for i, m := range items {
 		marker := " "
-		if s.runner.activeThread != nil && s.runner.activeThread.ID == m.ID {
+		if s.runner.ActiveThread != nil && s.runner.ActiveThread.ID == m.ID {
 			marker = "*"
 		}
 
@@ -228,6 +234,6 @@ func (s *cliSession) loadThread(id string) {
 		return
 	}
 
-	fmt.Println(styleMuted(fmt.Sprintf("Resumed %q (%d messages, tainted=%v)", meta.Name, len(s.runner.conversation)-1, s.runner.toolSession.Tainted)))
+	fmt.Println(styleMuted(fmt.Sprintf("Resumed %q (%d messages, tainted=%v)", meta.Name, len(s.runner.Conversation())-1, s.runner.ToolSession().Tainted)))
 	fmt.Println()
 }

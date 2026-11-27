@@ -1,4 +1,4 @@
-package main
+package llm
 
 import (
 	"io"
@@ -55,7 +55,7 @@ func TestChatThinkTagParsing(t *testing.T) {
 
 	var events []tokenEvent
 
-	reply, _, err := chat([]Message{{Role: "user", Content: "hello"}}, func(tok string, thinking bool) {
+	reply, _, err := Chat([]Message{{Role: "user", Content: "hello"}}, func(tok string, thinking bool) {
 		events = append(events, tokenEvent{text: tok, isThinking: thinking})
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func TestChatThinkTagAcrossWholeChunks(t *testing.T) {
 
 	var contentTokens, thinkingTokens []string
 
-	reply, _, err := chat([]Message{{Role: "user", Content: "hi"}}, func(tok string, thinking bool) {
+	reply, _, err := Chat([]Message{{Role: "user", Content: "hi"}}, func(tok string, thinking bool) {
 		if thinking {
 			thinkingTokens = append(thinkingTokens, tok)
 		} else {
@@ -136,7 +136,7 @@ func TestChatReasoningAndToolCalls(t *testing.T) {
 		return sseResponse(stream), nil
 	})
 
-	reply, _, err := chat([]Message{{Role: "user", Content: "hi"}}, nil)
+	reply, _, err := Chat([]Message{{Role: "user", Content: "hi"}}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestChatUsageAndFallback(t *testing.T) {
 			return sseResponse(stream), nil
 		})
 
-		_, usage, err := chat([]Message{{Role: "user", Content: "hello"}}, nil)
+		_, usage, err := Chat([]Message{{Role: "user", Content: "hello"}}, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -197,7 +197,7 @@ func TestChatUsageAndFallback(t *testing.T) {
 			return sseResponse(stream), nil
 		})
 
-		_, usage, err := chat([]Message{{Role: "user", Content: "12345678"}}, nil)
+		_, usage, err := Chat([]Message{{Role: "user", Content: "12345678"}}, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -218,7 +218,7 @@ func TestChatHTTPError(t *testing.T) {
 		}, nil
 	})
 
-	_, _, err := chat([]Message{{Role: "user", Content: "hi"}}, nil)
+	_, _, err := Chat([]Message{{Role: "user", Content: "hi"}}, nil)
 	if err == nil {
 		t.Fatal("expected error for 502 response, got nil")
 	}
