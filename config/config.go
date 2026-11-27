@@ -21,7 +21,15 @@ const (
 const (
 	HarnessDirName = ".enma"
 	ThreadsDirName = "threads"
+	EvalsDirName   = "evals"
 	ThreadsPerPage = 10
+)
+
+// Eval runner defaults.
+const (
+	DefaultEvalRuns       = 3
+	DefaultEvalMaxTurns   = 10
+	DefaultEvalTimeoutSec = 60
 )
 
 // Tool limits and untrusted path marker.

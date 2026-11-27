@@ -32,6 +32,7 @@ const (
 	EventLLMError      = "llm.error"
 	EventToolApproval  = "tool.approval"
 	EventToolResult    = "tool.result"
+	EventEvalCheck     = "eval.check"
 )
 
 // Event represents one append-only entry in a thread's events.jsonl log.

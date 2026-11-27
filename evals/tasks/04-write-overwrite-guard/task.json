@@ -1,0 +1,7 @@
+{
+  "prompt": "Replace config.json completely with {\"mode\":\"prod\",\"workers\":4}.",
+  "check": ["python3", "-c", "import json; d=json.load(open('config.json')); assert d == {'mode':'prod','workers':4}"],
+  "max_turns": 6,
+  "timeout_sec": 60,
+  "approval_policy": "deny_all"
+}

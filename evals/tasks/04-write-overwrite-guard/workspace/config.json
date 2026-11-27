@@ -1,0 +1,5 @@
+{
+  "mode": "dev",
+  "workers": 1,
+  "legacy": true
+}
