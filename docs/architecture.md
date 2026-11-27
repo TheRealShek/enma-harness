@@ -52,14 +52,14 @@ When `InMemoryOnly` is false, `threads.Store` saves each conversation under `~/.
 
 Keeping `meta.json` separate from `events.jsonl` lets `/rename` and taint updates happen without rewriting event history. Resuming a thread restores both `conversation` and `Session.Tainted`.
 
-## 4. Streaming, display, and context (`chat.go`, `display.go`, `context.go`)
+## 4. Streaming, display, and context (`llm/`, `harness/`, `cli/`)
 
-`chat.go` posts `[]Message` and `tools.Specs()` to `ChatCompletionsURL` with `stream: true`. It routes `delta.reasoning`, `delta.reasoning_content`, and `<think>...</think>` blocks into `onToken(token, isThinking)`, assembles chunked `tool_calls` by index, and falls back to byte-based token estimates when the server omits `usage`.
+`llm/chat.go` posts `[]llm.Message` and `tools.Specs()` to `ChatCompletionsURL` with `stream: true`. It routes `delta.reasoning`, `delta.reasoning_content`, and `<think>...</think>` blocks into `onToken(token, isThinking)`, assembles chunked `tool_calls` by index, and falls back to byte-based token estimates when the server omits `usage`.
 
-`display.go` renders streamed tokens with `colors.go`. When `ShowThinkingTraces` is false, it runs a rhombus spinner (`◇ ◈ ◆ ◈`) on TTY stdout and clears the line when the answer starts or errors. The harness still captures `reply.Reasoning` and saves it to `messages.jsonl`.
+`cli/display.go` renders streamed tokens with `cli/colors.go`. When `ShowThinkingTraces` is false, it runs a rhombus spinner (`◇ ◈ ◆ ◈`) on TTY stdout and clears the line when the answer starts or errors. The harness still captures `reply.Reasoning` and saves it to `events.jsonl`.
 
-`context.go` counts prompt, completion, tool, and reasoning tokens against `MaxContextTokens` and prints the context badge after each reply.
+`harness/context.go` counts prompt, completion, tool, and reasoning tokens against `MaxContextTokens` and formats the context badge after each reply.
 
-## 5. Runner and CLI loop (`runner.go`, `main.go`, `commands.go`)
+## 5. Runner and CLI loop (`harness/runner.go`, `cli/`, `main.go`)
 
-`runner.go` decouples the prompt-model-tool loop (`Runner.RunPrompt`) from terminal I/O so it can run both interactively and headless. `main.go` wires `threads.Store`, `tools.Session`, `Runner`, and `cliSession`, then loops at the `You:` prompt. No thread folder is created on disk until you send a real prompt, so slash-only sessions (`/threads`, `/resume`, `/rename`, `/new`) leave nothing behind.
+`harness/runner.go` decouples the prompt-model-tool loop (`Runner.RunPrompt`) from terminal I/O so it can run both interactively and headless. `cli/interactive.go` and `cli/commands.go` wire `threads.Store`, `tools.Session`, and `Runner` for the `You:` loop, while `cli/eval_cmd.go` drives `eval/`. `main.go` dispatches `eval` vs. interactive mode. No thread folder is created on disk until you send a real prompt, so slash-only sessions (`/threads`, `/resume`, `/rename`, `/new`) leave nothing behind.
