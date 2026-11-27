@@ -18,7 +18,8 @@ import (
 // RunEvalCommand parses flags and executes `enma eval` or `-diff`, returning a process exit code.
 func RunEvalCommand(args []string) int {
 	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
-	tasksDir := fs.String("tasks", "evals/tasks", "path to eval tasks directory")
+	tasksDir := fs.String("tasks", config.DefaultEvalTasksDir, "path to eval tasks directory")
+	resultsDir := fs.String("results", config.DefaultEvalResultsDir, "path to eval results directory")
 	runs := fs.Int("runs", config.DefaultEvalRuns, "number of trials per task")
 	filter := fs.String("filter", "", "substring filter for task names")
 	model := fs.String("model", config.DefaultModel, "model name override")
@@ -30,19 +31,12 @@ func RunEvalCommand(args []string) int {
 	}
 
 	if *diffArg != "" {
-		return runEvalDiff(*diffArg)
-	}
-
-	resultsDir, err := eval.DefaultResultsDir()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, styleError("Error:"), err)
-
-		return 1
+		return runEvalDiff(*diffArg, *resultsDir)
 	}
 
 	summary, err := eval.Run(context.Background(), eval.Config{
 		TasksDir:   *tasksDir,
-		ResultsDir: resultsDir,
+		ResultsDir: *resultsDir,
 		Filter:     *filter,
 		Model:      *model,
 		Runs:       *runs,
@@ -84,12 +78,12 @@ func RunEvalCommand(args []string) int {
 
 	fmt.Println()
 	fmt.Print(eval.FormatTable(summary))
-	fmt.Printf("Saved to %s\n", filepath.Join(resultsDir, summary.RunID))
+	fmt.Printf("Saved to %s\n", filepath.Join(*resultsDir, summary.RunID))
 
 	return 0
 }
 
-func runEvalDiff(spec string) int {
+func runEvalDiff(spec, resultsDir string) int {
 	aSpec, bSpec, ok := strings.Cut(spec, ",")
 	if !ok || strings.TrimSpace(aSpec) == "" || strings.TrimSpace(bSpec) == "" {
 		fmt.Fprintln(os.Stderr, styleError("Usage: enma eval -diff <runA>,<runB>"))
@@ -97,42 +91,23 @@ func runEvalDiff(spec string) int {
 		return 2
 	}
 
-	resultsDir, resultsErr := eval.DefaultResultsDir()
-	resolveRun := func(s string) (string, error) {
+	resolveRun := func(s string) string {
 		s = strings.TrimSpace(s)
 		if info, err := os.Stat(s); err == nil && info.IsDir() {
-			return s, nil
+			return s
 		}
 
-		if resultsErr != nil {
-			return "", resultsErr
-		}
-
-		return filepath.Join(resultsDir, s), nil
+		return filepath.Join(resultsDir, s)
 	}
 
-	pathA, err := resolveRun(aSpec)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, styleError("Error resolving run A:"), err)
-
-		return 1
-	}
-
-	pathB, err := resolveRun(bSpec)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, styleError("Error resolving run B:"), err)
-
-		return 1
-	}
-
-	a, err := eval.LoadOrBuildSummary(pathA)
+	a, err := eval.LoadOrBuildSummary(resolveRun(aSpec))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, styleError("Error loading run A:"), err)
 
 		return 1
 	}
 
-	b, err := eval.LoadOrBuildSummary(pathB)
+	b, err := eval.LoadOrBuildSummary(resolveRun(bSpec))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, styleError("Error loading run B:"), err)
 

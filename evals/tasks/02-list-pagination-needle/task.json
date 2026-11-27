@@ -1,7 +1,0 @@
-{
-  "prompt": "Find the Go file in pkg/ that defines TargetValue and change it to return 42 so `go test ./...` passes.",
-  "check": ["go", "test", "./..."],
-  "max_turns": 10,
-  "timeout_sec": 60,
-  "approval_policy": "deny_all"
-}

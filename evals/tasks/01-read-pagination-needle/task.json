@@ -1,7 +1,0 @@
-{
-  "prompt": "Find and fix the bug in Multiply near the bottom of big.go so `go test ./...` passes.",
-  "check": ["go", "test", "./..."],
-  "max_turns": 8,
-  "timeout_sec": 60,
-  "approval_policy": "deny_all"
-}

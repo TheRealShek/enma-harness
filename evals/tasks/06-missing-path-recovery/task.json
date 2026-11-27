@@ -1,7 +1,0 @@
-{
-  "prompt": "Fix the bug in config.go so DefaultPort returns 8080 and `go test ./...` passes.",
-  "check": ["go", "test", "./..."],
-  "max_turns": 8,
-  "timeout_sec": 60,
-  "approval_policy": "deny_all"
-}

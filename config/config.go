@@ -27,6 +27,8 @@ const (
 
 // Eval runner defaults.
 const (
+	DefaultEvalTasksDir   = "../enma-evals/v1/tasks"
+	DefaultEvalResultsDir = "../enma-evals/v1/results"
 	DefaultEvalRuns       = 3
 	DefaultEvalMaxTurns   = 10
 	DefaultEvalTimeoutSec = 60

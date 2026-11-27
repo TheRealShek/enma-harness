@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 
 const (
 	taskFileName    = "task.json"
-	summaryFileName = "summary.json"
+	summaryFileName = "summary.csv"
 	workspaceDir    = "workspace"
 	maxCheckOutput  = 8 * 1024
 )
@@ -107,14 +109,9 @@ type RunSummary struct {
 	Tasks       []TaskSummary `json:"tasks"`
 }
 
-// DefaultResultsDir returns ~/.enma/evals.
-func DefaultResultsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("unable to determine home directory: %w", err)
-	}
-
-	return filepath.Join(home, config.HarnessDirName, config.EvalsDirName), nil
+// DefaultResultsDir returns the default directory where eval run results are stored.
+func DefaultResultsDir() string {
+	return config.DefaultEvalResultsDir
 }
 
 // LoadTasks reads and validates task directories under tasksDir.
@@ -241,10 +238,7 @@ func Run(ctx context.Context, cfg Config) (*RunSummary, error) {
 
 	resultsDir := cfg.ResultsDir
 	if resultsDir == "" {
-		resultsDir, err = DefaultResultsDir()
-		if err != nil {
-			return nil, err
-		}
+		resultsDir = DefaultResultsDir()
 	}
 
 	runID, err := newRunID()
@@ -484,16 +478,13 @@ func finalizeTaskSummary(ts *TaskSummary) {
 	ts.AvgDurationMS = float64(totalMS) / n
 }
 
-// LoadOrBuildSummary reads summary.json from runDir, or lazily reconstructs it from events.jsonl if missing.
+// LoadOrBuildSummary reads summary.csv from runDir, or lazily reconstructs it from events.jsonl if missing.
 func LoadOrBuildSummary(runDir string) (*RunSummary, error) {
-	raw, err := os.ReadFile(filepath.Join(runDir, summaryFileName))
-	if err == nil {
-		var s RunSummary
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, fmt.Errorf("failed to parse %s: %w", summaryFileName, err)
-		}
+	summaryPath := filepath.Join(runDir, summaryFileName)
 
-		return &s, nil
+	summary, err := readSummaryCSV(summaryPath)
+	if err == nil {
+		return summary, nil
 	}
 
 	if !errors.Is(err, fs.ErrNotExist) {
@@ -634,19 +625,152 @@ func FormatDiff(a, b *RunSummary) string {
 	return out.String()
 }
 
+// writeSummary writes per-trial eval results to summary.csv.
 func writeSummary(path string, summary *RunSummary) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(summary, "", "  ")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
 
-	data = append(data, '\n')
+	w := csv.NewWriter(f)
+	header := []string{
+		"run_id", "model", "started_at", "task", "trial", "passed",
+		"check_exit_code", "prompt_tokens", "completion_tokens",
+		"reasoning_tokens", "tool_calls", "tool_errors",
+		"approvals_denied", "duration_ms", "thread_id", "run_error",
+	}
 
-	return os.WriteFile(path, data, 0o600)
+	if err := w.Write(header); err != nil {
+		_ = f.Close()
+
+		return err
+	}
+
+	startedAt := summary.StartedAt.UTC().Format(time.RFC3339)
+
+	for _, ts := range summary.Tasks {
+		for _, tr := range ts.Trials {
+			row := []string{
+				summary.RunID,
+				summary.Model,
+				startedAt,
+				tr.Task,
+				strconv.Itoa(tr.Trial),
+				strconv.FormatBool(tr.Passed),
+				strconv.Itoa(tr.CheckExitCode),
+				strconv.Itoa(tr.PromptTokens),
+				strconv.Itoa(tr.CompletionTokens),
+				strconv.Itoa(tr.ReasoningTokens),
+				strconv.Itoa(tr.ToolCalls),
+				strconv.Itoa(tr.ToolErrors),
+				strconv.Itoa(tr.ApprovalsDenied),
+				strconv.FormatInt(tr.DurationMS, 10),
+				tr.ThreadID,
+				tr.RunError,
+			}
+
+			if err := w.Write(row); err != nil {
+				_ = f.Close()
+
+				return err
+			}
+		}
+	}
+
+	w.Flush()
+
+	if err := w.Error(); err != nil {
+		_ = f.Close()
+
+		return err
+	}
+
+	return f.Close()
+}
+
+// readSummaryCSV parses summary.csv back into an aggregated RunSummary.
+func readSummaryCSV(path string) (*RunSummary, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	defer f.Close()
+
+	rows, err := csv.NewReader(f).ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", summaryFileName, err)
+	}
+
+	if len(rows) < 2 {
+		return nil, fmt.Errorf("%s has no trial rows", summaryFileName)
+	}
+
+	summary := &RunSummary{
+		RunID: rows[1][0],
+		Model: rows[1][1],
+	}
+	if t, err := time.Parse(time.RFC3339, rows[1][2]); err == nil {
+		summary.StartedAt = t
+	}
+
+	byTask := make(map[string]*TaskSummary)
+
+	for _, row := range rows[1:] {
+		if len(row) < 16 {
+			return nil, fmt.Errorf("invalid row in %s: expected 16 columns, got %d", summaryFileName, len(row))
+		}
+
+		tr := TrialMetrics{
+			Task:     row[3],
+			ThreadID: row[14],
+			RunError: row[15],
+		}
+		tr.Trial, _ = strconv.Atoi(row[4])
+		tr.Passed, _ = strconv.ParseBool(row[5])
+		tr.CheckExitCode, _ = strconv.Atoi(row[6])
+		tr.PromptTokens, _ = strconv.Atoi(row[7])
+		tr.CompletionTokens, _ = strconv.Atoi(row[8])
+		tr.ReasoningTokens, _ = strconv.Atoi(row[9])
+		tr.ToolCalls, _ = strconv.Atoi(row[10])
+		tr.ToolErrors, _ = strconv.Atoi(row[11])
+		tr.ApprovalsDenied, _ = strconv.Atoi(row[12])
+		tr.DurationMS, _ = strconv.ParseInt(row[13], 10, 64)
+
+		ts, ok := byTask[tr.Task]
+		if !ok {
+			ts = &TaskSummary{Task: tr.Task}
+			byTask[tr.Task] = ts
+		}
+
+		ts.Trials = append(ts.Trials, tr)
+		ts.Total++
+
+		if tr.Passed {
+			ts.Passed++
+		}
+	}
+
+	for _, ts := range byTask {
+		finalizeTaskSummary(ts)
+		summary.Tasks = append(summary.Tasks, *ts)
+		summary.Passed += ts.Passed
+		summary.Total += ts.Total
+	}
+
+	slices.SortFunc(summary.Tasks, func(a, b TaskSummary) int {
+		return cmp.Compare(a.Task, b.Task)
+	})
+
+	if summary.Total > 0 {
+		summary.PassRate = float64(summary.Passed) / float64(summary.Total)
+	}
+
+	return summary, nil
 }
 
 func newRunID() (string, error) {
@@ -655,7 +779,7 @@ func newRunID() (string, error) {
 		return "", err
 	}
 
-	return fmt.Sprintf("%s-%s", time.Now().UTC().Format("20060102-150405"), hex.EncodeToString(b[:])), nil
+	return fmt.Sprintf("%s-%s", time.Now().UTC().Format("2006-01-02_15-04-05"), hex.EncodeToString(b[:])), nil
 }
 
 func copyDir(src, dst string) error {

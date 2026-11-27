@@ -64,8 +64,18 @@ func TestRunAndLazySummaryRebuild(t *testing.T) {
 		t.Fatalf("summary = %d/%d, want 1/2", summary.Passed, summary.Total)
 	}
 
-	// Removing summary.json should still allow lazy reconstruction from events.jsonl.
 	runDir := filepath.Join(resultsDir, summary.RunID)
+
+	loadedCSV, err := LoadOrBuildSummary(runDir)
+	if err != nil {
+		t.Fatalf("LoadOrBuildSummary(csv) failed: %v", err)
+	}
+
+	if loadedCSV.Passed != 1 || loadedCSV.Total != 2 || len(loadedCSV.Tasks) != 1 || loadedCSV.Tasks[0].AvgTokens != 15 {
+		t.Fatalf("loadedCSV = %+v, want 1/2 with AvgTokens=15", loadedCSV)
+	}
+
+	// Removing summary.csv should still allow lazy reconstruction from events.jsonl.
 	_ = os.Remove(filepath.Join(runDir, summaryFileName))
 
 	rebuilt, err := LoadOrBuildSummary(runDir)
@@ -101,16 +111,5 @@ func TestApproveFuncForPolicy(t *testing.T) {
 
 	if allow("write sensitive repo file", filepath.Join(root, ".git/hooks/pre-commit"), false) {
 		t.Fatal("allow_project must deny .git writes")
-	}
-}
-
-func TestLoadBuiltInTasks(t *testing.T) {
-	tasks, err := LoadTasks(filepath.Join("..", "evals", "tasks"), "")
-	if err != nil {
-		t.Fatalf("LoadTasks failed: %v", err)
-	}
-
-	if len(tasks) != 10 {
-		t.Fatalf("len(tasks) = %d, want 10", len(tasks))
 	}
 }
